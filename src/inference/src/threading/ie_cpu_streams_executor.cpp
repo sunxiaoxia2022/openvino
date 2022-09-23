@@ -202,19 +202,24 @@ struct CPUStreamsExecutor::Impl {
                 (0 == config._threadsPerStream) ? std::thread::hardware_concurrency() : config._threadsPerStream;
             int sum = 0;
             // reversed order, so BIG cores are first
-            for (auto iter = core_types.rbegin(); iter < core_types.rend(); iter++) {
-                const auto& type = *iter;
-                // calculating the #streams per core type
-                const int num_streams_for_core_type =
-                    std::max(1,
-                             custom::info::default_concurrency(custom::task_arena::constraints{}.set_core_type(type)) /
-                                 threadsPerStream);
-                sum += num_streams_for_core_type;
-                // prefix sum, so the core type for a given stream id will be deduced just as a upper_bound
-                // (notice that the map keeps the elements in the descending order, so the big cores are populated
-                // first)
-                total_streams_on_core_types.push_back({type, sum});
-            }
+            // for (auto iter = core_types.rbegin(); iter < core_types.rend(); iter++) {
+            //     const auto& type = *iter;
+            //     // calculating the #streams per core type
+            //     const int num_streams_for_core_type =
+            //         std::max(1,
+            //                  custom::info::default_concurrency(custom::task_arena::constraints{}.set_core_type(type)) /
+            //                      threadsPerStream);
+            //     sum += num_streams_for_core_type;
+            //     // prefix sum, so the core type for a given stream id will be deduced just as a upper_bound
+            //     // (notice that the map keeps the elements in the descending order, so the big cores are populated
+            //     // first)
+            //     total_streams_on_core_types.push_back({type, sum});
+            // }
+
+            sum = std::max(1, config._big_core_streams / threadsPerStream);
+            total_streams_on_core_types.push_back({1, sum});
+            sum += std::max(1, config._small_core_streams / threadsPerStream);
+            total_streams_on_core_types.push_back({0, sum});
         }
 #endif
         for (auto streamId = 0; streamId < _config._streams; ++streamId) {

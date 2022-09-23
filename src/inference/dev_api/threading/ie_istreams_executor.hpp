@@ -82,7 +82,8 @@ public:
          * @return configured values
          */
         static Config MakeDefaultMultiThreaded(const Config& initial, const bool fp_intesive = true);
-        static int GetDefaultNumStreams();  // no network specifics considered (only CPU's caps);
+        static int GetDefaultNumStreams(Config &config);  // no network specifics considered (only CPU's caps);
+        int get_num_streams();
 
         std::string _name;          //!< Used by `ITT` to name executor threads
         int _streams = 1;           //!< Number of streams.
@@ -95,6 +96,8 @@ public:
                                        //!< starting from offset
         int _threads = 0;              //!< Number of threads distributed between streams.
                                        //!< Reserved. Should not be used.
+        int _big_core_streams = 0;
+        int _small_core_streams = 0;
         enum PreferredCoreType {
             ANY,
             LITTLE,

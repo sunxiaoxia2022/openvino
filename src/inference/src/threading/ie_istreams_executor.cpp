@@ -32,18 +32,25 @@ std::vector<std::string> IStreamsExecutor::Config::SupportedKeys() const {
         ov::affinity.name(),
     };
 }
-int IStreamsExecutor::Config::GetDefaultNumStreams() {
+int IStreamsExecutor::Config::GetDefaultNumStreams(Config& config) {
     const int sockets = static_cast<int>(getAvailableNUMANodes().size());
+    const int num_phy_cores = getNumberOfCPUCores();
+    const int num_big_cores = getNumberOfCPUCores(true);
+    const int num_little_cores = num_phy_cores - num_big_cores;
+
+    config._small_core_streams = num_little_cores / 4;
     // bare minimum of streams (that evenly divides available number of core)
-    const int num_cores = sockets == 1 ? std::thread::hardware_concurrency() : getNumberOfCPUCores();
+    const int num_cores = sockets == 1 ? std::thread::hardware_concurrency() - num_little_cores : num_phy_cores;
     if (0 == num_cores % 4)
-        return std::max(4, num_cores / 4);
+        config._big_core_streams = std::max(4, num_cores / 4);
     else if (0 == num_cores % 5)
-        return std::max(5, num_cores / 5);
+        config._big_core_streams = std::max(5, num_cores / 5);
     else if (0 == num_cores % 3)
-        return std::max(3, num_cores / 3);
+        config._big_core_streams = std::max(3, num_cores / 3);
     else  // if user disables some cores say in BIOS, so we got weird #cores which is not easy to divide
-        return 1;
+        config._big_core_streams = 1;
+    
+    return config._big_core_streams + config._small_core_streams;
 }
 
 void IStreamsExecutor::Config::SetConfig(const std::string& key, const std::string& value) {
@@ -92,7 +99,7 @@ void IStreamsExecutor::Config::SetConfig(const std::string& key, const std::stri
             _streams = static_cast<int>(getAvailableNUMANodes().size());
         } else if (value == CONFIG_VALUE(CPU_THROUGHPUT_AUTO)) {
             // bare minimum of streams (that evenly divides available number of cores)
-            _streams = GetDefaultNumStreams();
+            _streams = GetDefaultNumStreams(*this);
         } else {
             int val_i;
             try {
@@ -114,7 +121,7 @@ void IStreamsExecutor::Config::SetConfig(const std::string& key, const std::stri
             _streams = static_cast<int32_t>(getAvailableNUMANodes().size());
         } else if (streams == ov::streams::AUTO) {
             // bare minimum of streams (that evenly divides available number of cores)
-            _streams = GetDefaultNumStreams();
+            _streams = GetDefaultNumStreams(*this);
         } else if (streams.num >= 0) {
             _streams = streams.num;
         } else {
