@@ -32,7 +32,7 @@ std::vector<std::string> IStreamsExecutor::Config::SupportedKeys() const {
         ov::affinity.name(),
     };
 }
-int IStreamsExecutor::Config::GetDefaultNumStreams(Config& config) {
+int IStreamsExecutor::Config::GetDefaultNumStreams(const Config& config) {
     const int sockets = static_cast<int>(getAvailableNUMANodes().size());
     const int num_phy_cores = getNumberOfCPUCores();
     const int num_big_cores = getNumberOfCPUCores(true);

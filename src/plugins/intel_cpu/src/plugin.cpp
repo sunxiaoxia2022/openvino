@@ -717,19 +717,19 @@ void Engine::ApplyPerformanceHints(std::map<std::string, std::string> &config, c
         // less aggressive
         // const auto num_streams_less_aggressive = num_cores / 2;
 
-        const get_num_streams = [](bool aggressive, int &num_streams){
+        auto get_num_streams = [&](bool aggressive) {
             const auto num_cores = getNumberOfCPUCores();
             const auto num_big_cores = getNumberOfCPUCores(true);
             const auto num_small_cores = num_cores - num_big_cores;
-            const auto num_streams_less_aggressive = num_cores / 2;
-            if(aggressive) {
+            if (aggressive) {
                 engConfig.streamExecutorConfig._big_core_streams = num_big_cores;
                 engConfig.streamExecutorConfig._small_core_streams = num_small_cores;
             } else {
                 engConfig.streamExecutorConfig._big_core_streams = num_big_cores / 2;
                 engConfig.streamExecutorConfig._small_core_streams = num_small_cores / 4;
             }
-            num_streams = engConfig.streamExecutorConfig._big_core_streams + engConfig.streamExecutorConfig._small_core_streams;
+
+            return engConfig.streamExecutorConfig._big_core_streams + engConfig.streamExecutorConfig._small_core_streams;
         };
         // default #streams value (most conservative)
         const auto default_num_streams = IStreamsExecutor::Config::GetDefaultNumStreams(engConfig.streamExecutorConfig);
@@ -739,18 +739,18 @@ void Engine::ApplyPerformanceHints(std::map<std::string, std::string> &config, c
                 || (networkToleranceForLowCache.ratio_compute_deconvs == ov::MemBandwidthPressure::ALL)) {
                 // all relevant layers (convs, etc) are compute-limited, the most aggressive val for #streams
                 // num_streams = num_cores;
-                get_num_streams(true, num_streams);
+                num_streams = get_num_streams(true);
             }   // otherwise (no recognized layers) falling back to the default value
         } else if (networkToleranceForLowCache.max_mem_tolerance > memThresholdAssumeLimitedForISA) {
             // network is below the ISA-specific threshold
             // num_streams = num_cores;
-            get_num_streams(true, num_streams);
+            num_streams = get_num_streams(true);
         } else if (networkToleranceForLowCache.max_mem_tolerance > ov::MemBandwidthPressure::LIMITED) {
             // network is below general threshold
             // num_streams = std::max(default_num_streams, num_streams_less_aggressive);
-            get_num_streams(false, num_streams);
+            num_streams = get_num_streams(false);
         }
-        
+
         auto num_requests = config.find(CONFIG_KEY(PERFORMANCE_HINT_NUM_REQUESTS));
         if (num_requests != config.end()) {  // arrived with config to the LoadNetwork (and thus higher pri)
             auto val = PerfHintsConfig::CheckPerformanceHintRequestValue(num_requests->second);
