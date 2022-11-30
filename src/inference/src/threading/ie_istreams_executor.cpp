@@ -448,7 +448,7 @@ IStreamsExecutor::Config IStreamsExecutor::Config::MakeDefaultMultiThreaded(cons
         if (streamExecutorConfig._big_core_streams == 0 || streamExecutorConfig._threads) {
             UpdateHybridCustomThreads(streamExecutorConfig);
         }
-        OPENVINO_DEBUG << "[ p_e_core_info ] streams (threads): " << streamExecutorConfig._streams << "("
+        std::cout << "[ p_e_core_info ] streams (threads): " << streamExecutorConfig._streams << "("
                        << streamExecutorConfig._threads_per_stream_big * streamExecutorConfig._big_core_streams +
                               streamExecutorConfig._threads_per_stream_small * streamExecutorConfig._small_core_streams
                        << ") -- PCore: " << streamExecutorConfig._big_core_streams << "("

@@ -16,6 +16,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <iostream>
 
 #include "ie_parallel_custom_arena.hpp"
 #include "ie_system_conf.h"
@@ -276,6 +277,7 @@ struct CPUStreamsExecutor::Impl {
         }
 #endif
         for (auto streamId = 0; streamId < _config._streams; ++streamId) {
+            _streamsCounts.push_back(0);
             _threads.emplace_back([this, streamId] {
                 openvino::itt::threadName(_config._name + "_" + std::to_string(streamId));
                 for (bool stopped = false; !stopped;) {
@@ -309,6 +311,7 @@ struct CPUStreamsExecutor::Impl {
     void Execute(const Task& task, Stream& stream) {
 #if IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO
         auto& arena = stream._taskArena;
+        _streamsCounts[stream._streamId]++;
         if (nullptr != arena) {
             arena->execute(std::move(task));
         } else {
@@ -346,6 +349,7 @@ struct CPUStreamsExecutor::Impl {
     bool _isStopped = false;
     std::vector<int> _usedNumaNodes;
     ThreadLocal<std::shared_ptr<Stream>> _streams;
+    std::vector<int> _streamsCounts;
 #if (IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO)
     // stream id mapping to the core type
     // stored in the reversed order (so the big cores, with the highest core_type_id value, are populated first)
@@ -374,6 +378,14 @@ CPUStreamsExecutor::~CPUStreamsExecutor() {
     {
         std::lock_guard<std::mutex> lock(_impl->_mutex);
         _impl->_isStopped = true;
+        if (_impl->_streamsCounts.size() > 1) {
+            std::cout << "[ stream counts ] num_streams: " << _impl->_streamsCounts.size() << "  counts_per_stream: ";
+            for (auto i = 0; i < _impl->_streamsCounts.size(); i++) {
+                std::cout << _impl->_streamsCounts[i] << " ";
+            }
+            std::cout << "\n";
+        }
+
     }
     _impl->_queueCondVar.notify_all();
     for (auto& thread : _impl->_threads) {
