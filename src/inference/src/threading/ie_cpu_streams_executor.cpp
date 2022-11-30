@@ -385,7 +385,6 @@ CPUStreamsExecutor::~CPUStreamsExecutor() {
             }
             std::cout << "\n";
         }
-
     }
     _impl->_queueCondVar.notify_all();
     for (auto& thread : _impl->_threads) {
