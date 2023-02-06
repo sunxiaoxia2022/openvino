@@ -58,4 +58,14 @@ int getNumberOfCPUCores(bool bigCoresOnly) {
 std::vector<int> getAvailableNUMANodes() { return {-1}; }
 #endif
 
+bool cpuMapAvailable() {
+    return false;
+}
+
+std::vector<int> getAvailableCPUs(const cpu_core_type_of_processor core_type, const int num_cpus) {
+    return {};
+}
+
+void setCpuUsed(std::vector<int> cpu_ids, int used) {}
+
 }  // namespace InferenceEngine
