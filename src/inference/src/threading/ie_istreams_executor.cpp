@@ -425,10 +425,10 @@ IStreamsExecutor::Config IStreamsExecutor::Config::SetExecutorConfig(std::string
     }
     if (streamExecutorConfig._threadPreferredCoreType == LITTLE) {
         streamExecutorConfig._small_core_streams = num_streams;
-        streamExecutorConfig._threads_per_stream_small = num_streams;
+        streamExecutorConfig._threads_per_stream_small = 1;
     } else {
         streamExecutorConfig._big_core_streams = num_streams;
-        streamExecutorConfig._threads_per_stream_big = num_streams;
+        streamExecutorConfig._threads_per_stream_big = 1;
     }
     std::cout << "SetExecutorConfig-----name:" << name << " num_streams: " << num_streams
               << " thread_binding_type: " << thread_binding_type << " thread_core_type: " << thread_core_type << "\n";
