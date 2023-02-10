@@ -278,13 +278,42 @@ int getNumberOfCPUCores(bool bigCoresOnly) {
     return phys_cores;
 }
 
+std::vector<std::vector<int>> getNumOfAvailableCPUCores() {
+    std::vector<std::vector<int>> proc_type_table;
+    std::vector<int> all_table;
+    if (cpu._sockets == 1) {
+        proc_type_table.resize(1, std::vector<int>(PROC_TYPE_TABLE_SIZE, 0));
+    } else {
+        proc_type_table.resize(2, std::vector<int>(PROC_TYPE_TABLE_SIZE, 0));
+    }
+    all_table.resize(PROC_TYPE_TABLE_SIZE, 0);
+    for (int i = 0; i < cpu._processors; i++) {
+        for (int socket_id = 0; socket_id < cpu._sockets; socket_id++) {
+            for (int type = MAIN_CORE_PROC; type < PROC_TYPE_TABLE_SIZE; type++) {
+                if (cpu._cpu_mapping_table[i][CPU_MAP_CORE_TYPE] == type &&
+                    cpu._cpu_mapping_table[i][CPU_MAP_SOCKET_ID] == socket_id &&
+                    cpu._cpu_mapping_table[i][CPU_MAP_USED_FLAG] <= 0) {
+                    proc_type_table[socket_id][type]++;
+                    proc_type_table[socket_id][ALL_PROC]++;
+                    all_table[type]++;
+                    all_table[ALL_PROC]++;
+                }
+            }
+        }
+    }
+    if (cpu._sockets > 1) {
+        proc_type_table.insert(proc_type_table.begin(), all_table);
+    }
+    return proc_type_table;
+}
+
 bool cpuMapAvailable() {
     return cpu._cpu_mapping_table.size() > 0;
 }
 
 std::vector<int> getAvailableCPUs(const cpu_core_type_of_processor core_type, const int num_cpus) {
     std::vector<int> cpu_ids;
-    if (core_type <= EFFICIENT_CORE_PROC && core_type >= ALL_PROC) {
+    if (core_type < PROC_TYPE_TABLE_SIZE && core_type >= ALL_PROC) {
         for (int i = 0; i < cpu._processors; i++) {
             if (cpu._cpu_mapping_table[i][CPU_MAP_CORE_TYPE] == core_type &&
                 cpu._cpu_mapping_table[i][CPU_MAP_USED_FLAG] <= 0) {
@@ -298,6 +327,23 @@ std::vector<int> getAvailableCPUs(const cpu_core_type_of_processor core_type, co
         IE_THROW() << "Wrong value for core_type " << core_type;
     }
     return cpu_ids;
+}
+
+std::vector<int> getLogicCores(std::vector<int> cpu_ids) {
+    std::vector<int> logic_cores;
+    int cpu_size = static_cast<int>(cpu_ids.size());
+    for (int i = 0; i < cpu._processors; i++) {
+        for (int j = 0; j < cpu_size; j++) {
+            if (cpu._cpu_mapping_table[i][CPU_MAP_CORE_ID] == cpu._cpu_mapping_table[cpu_ids[j]][CPU_MAP_CORE_ID] &&
+                cpu._cpu_mapping_table[i][CPU_MAP_PROCESSOR_ID] != cpu_ids[j]) {
+                logic_cores.push_back(cpu._cpu_mapping_table[i][CPU_MAP_PROCESSOR_ID]);
+            }
+        }
+        if (cpu_ids.size() == logic_cores.size()) {
+            break;
+        }
+    }
+    return logic_cores;
 }
 
 void setCpuUsed(std::vector<int> cpu_ids, int used) {

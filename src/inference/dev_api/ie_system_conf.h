@@ -149,6 +149,21 @@ INFERENCE_ENGINE_API_CPP(bool) cpuMapAvailable();
 INFERENCE_ENGINE_API_CPP(void) setCpuUsed(std::vector<int> cpu_ids, int used);
 
 /**
+ * @brief      Returns number of CPU cores on Linux/Windows
+ * @ingroup    ie_dev_api_system_conf
+ * @return     Number of CPU cores with core_type.
+ */
+INFERENCE_ENGINE_API_CPP(std::vector<std::vector<int>>) getNumOfAvailableCPUCores();
+
+/**
+ * @brief      Returns corresponding logical cores
+ * @ingroup    ie_dev_api_system_conf
+ * @param[in]  cpu_ids physical cores
+ * @return     logical cores Corresponding to physical core.
+ */
+INFERENCE_ENGINE_API_CPP(std::vector<int>) getLogicCores(std::vector<int> cpu_ids);
+
+/**
  * @enum cpu_core_type_of_processor
  * @brief This enum contains defination of processor based on specific cpu core types.
  * Will extend to support other CPU core type like ARM.

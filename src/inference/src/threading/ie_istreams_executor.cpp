@@ -409,6 +409,41 @@ void IStreamsExecutor::Config::UpdateHybridCustomThreads(Config& config) {
     }
 }
 
+IStreamsExecutor::Config IStreamsExecutor::Config::SetExecutorConfig(std::string name,
+                                                                     int num_streams,
+                                                                     ThreadBindingType thread_binding_type,
+                                                                     PreferredCoreType thread_core_type) {
+    Config streamExecutorConfig = Config{name, num_streams};
+    if (name.find("CPU") == std::string::npos) {
+        streamExecutorConfig._logic_core_disable = true;
+    }
+    streamExecutorConfig._threads = num_streams;
+    streamExecutorConfig._threadBindingType = thread_binding_type;
+    streamExecutorConfig._threadPreferredCoreType = thread_core_type;
+    if (streamExecutorConfig._threadBindingType == CORES) {
+        streamExecutorConfig._bind_cores = true;
+    }
+    if (streamExecutorConfig._threadPreferredCoreType == LITTLE) {
+        streamExecutorConfig._small_core_streams = num_streams;
+        streamExecutorConfig._threads_per_stream_small = num_streams;
+    } else {
+        streamExecutorConfig._big_core_streams = num_streams;
+        streamExecutorConfig._threads_per_stream_big = num_streams;
+    }
+    std::cout << "SetExecutorConfig-----name:" << name << " num_streams: " << num_streams
+              << " thread_binding_type: " << thread_binding_type << " thread_core_type: " << thread_core_type << "\n";
+    std::cout << "[ SetExecutorConfig info ] streams (threads): " << streamExecutorConfig._streams << "("
+              << streamExecutorConfig._threads_per_stream_big *
+                         (streamExecutorConfig._big_core_streams + streamExecutorConfig._big_core_logic_streams) +
+                     streamExecutorConfig._threads_per_stream_small * streamExecutorConfig._small_core_streams
+              << ") -- PCore: " << streamExecutorConfig._big_core_streams << "("
+              << streamExecutorConfig._threads_per_stream_big << ") " << streamExecutorConfig._big_core_logic_streams
+              << "(" << streamExecutorConfig._threads_per_stream_big
+              << ")  ECore: " << streamExecutorConfig._small_core_streams << "("
+              << streamExecutorConfig._threads_per_stream_small << ")";
+    return streamExecutorConfig;
+}
+
 IStreamsExecutor::Config IStreamsExecutor::Config::MakeDefaultMultiThreaded(const IStreamsExecutor::Config& initial,
                                                                             const bool fp_intesive) {
     const auto envThreads = parallel_get_env_threads();
@@ -416,16 +451,19 @@ IStreamsExecutor::Config IStreamsExecutor::Config::MakeDefaultMultiThreaded(cons
     const int numaNodesNum = static_cast<int>(numaNodes.size());
     auto streamExecutorConfig = initial;
     const bool bLatencyCase = streamExecutorConfig._streams <= numaNodesNum;
+    bool cpu_map_available = cpuMapAvailable();
+    std::vector<std::vector<int>> cpu_table = getNumOfAvailableCPUCores();
 
     // by default, do not use the hyper-threading (to minimize threads synch overheads)
-    int num_cores_default = getNumberOfCPUCores();
+    int num_cores_default =
+        cpu_map_available ? cpu_table[0][MAIN_CORE_PROC] + cpu_table[0][EFFICIENT_CORE_PROC] : getNumberOfCPUCores();
 #if (IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO)
     // additional latency-case logic for hybrid processors:
     if (ThreadBindingType::HYBRID_AWARE == streamExecutorConfig._threadBindingType) {
         const auto core_types = custom::info::core_types();
         const auto num_little_cores =
             custom::info::default_concurrency(custom::task_arena::constraints{}.set_core_type(core_types.front()));
-        const auto num_big_cores_phys = getNumberOfCPUCores(true);
+        const auto num_big_cores_phys = cpu_map_available ? cpu_table[0][MAIN_CORE_PROC] : getNumberOfCPUCores(true);
         const int int8_threshold = 4;  // ~relative efficiency of the VNNI-intensive code for Big vs Little cores;
         const int fp32_threshold = 2;  // ~relative efficiency of the AVX2 fp32 code for Big vs Little cores;
         // by default the latency case uses (faster) Big cores only, depending on the compute ratio
@@ -455,8 +493,10 @@ IStreamsExecutor::Config IStreamsExecutor::Config::MakeDefaultMultiThreaded(cons
             streamExecutorConfig._big_core_streams /= 2;
             streamExecutorConfig._big_core_logic_streams = streamExecutorConfig._big_core_streams;
         }
-        OPENVINO_DEBUG << "[ p_e_core_info ] streams (threads): " << streamExecutorConfig._streams << "("
-                       << streamExecutorConfig._threads_per_stream_big * streamExecutorConfig._big_core_streams +
+        std::cout << "[ p_e_core_info ] streams (threads): " << streamExecutorConfig._streams << "("
+                       << streamExecutorConfig._threads_per_stream_big *
+                                  (streamExecutorConfig._big_core_streams +
+                                   streamExecutorConfig._big_core_logic_streams) +
                               streamExecutorConfig._threads_per_stream_small * streamExecutorConfig._small_core_streams
                        << ") -- PCore: " << streamExecutorConfig._big_core_streams << "("
                        << streamExecutorConfig._threads_per_stream_big << ") "

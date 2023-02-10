@@ -270,14 +270,16 @@ void Engine::ApplyPerformanceHints(std::map<std::string, std::string> &config, c
 Engine::StreamCfg Engine::GetNumStreams(InferenceEngine::IStreamsExecutor::ThreadBindingType thread_binding_type,
                                         int stream_mode,
                                         const bool enable_hyper_thread) const {
+    std::vector<std::vector<int>> cpu_table = getNumOfAvailableCPUCores();
+    bool cpu_map_available = cpuMapAvailable();
+    const int num_cores_phy =
+        cpu_map_available ? cpu_table[0][MAIN_CORE_PROC] + cpu_table[0][EFFICIENT_CORE_PROC] : getNumberOfCPUCores();
+    const int num_cores_all = cpu_map_available ? cpu_table[0][ALL_PROC] : parallel_get_max_threads();
     const int sockets = static_cast<int>(getAvailableNUMANodes().size());
-    const int num_cores =
-        thread_binding_type == InferenceEngine::IStreamsExecutor::ThreadBindingType::HYBRID_AWARE
-            ? parallel_get_max_threads()
-            : (sockets == 1 ? (enable_hyper_thread ? parallel_get_max_threads() : getNumberOfCPUCores())
-                            : getNumberOfCPUCores());
-    const int num_cores_phy = getNumberOfCPUCores();
-    const int num_big_cores_phy = getNumberOfCPUCores(true);
+    const int num_cores = thread_binding_type == InferenceEngine::IStreamsExecutor::ThreadBindingType::HYBRID_AWARE
+                              ? num_cores_all
+                              : (sockets == 1 ? (enable_hyper_thread ? num_cores_all : num_cores_phy) : num_cores_phy);
+    const int num_big_cores_phy = cpu_map_available ? cpu_table[0][MAIN_CORE_PROC] : getNumberOfCPUCores(true);
     const int num_small_cores = num_cores_phy - num_big_cores_phy;
     const int num_big_cores = num_cores > num_cores_phy ? num_big_cores_phy * 2 : num_big_cores_phy;
     StreamCfg stream_cfg = {0};
