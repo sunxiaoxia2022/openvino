@@ -16,6 +16,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <iostream>
 
 #include "ie_parallel_custom_arena.hpp"
 #include "ie_system_conf.h"
@@ -130,6 +131,11 @@ struct CPUStreamsExecutor::Impl {
                         _cpu_ids.insert(_cpu_ids.end(), logic_cores.begin(), logic_cores.end());
                     }
                     setCpuUsed(_cpu_ids, 1);
+                    std::cout << "cpu used: ";
+                    for (auto i = 0; i < static_cast<int>(_cpu_ids.size()); i++) {
+                        std::cout << _cpu_ids[i] << " ";
+                    }
+                    std::cout << "\n";
 
                     CpuSet processMask;
                     int ncpus = 0;
