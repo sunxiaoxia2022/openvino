@@ -432,11 +432,11 @@ IStreamsExecutor::Config IStreamsExecutor::Config::SetExecutorConfig(std::string
         streamExecutorConfig._threads_per_stream_big = 1;
     }
     if (streamExecutorConfig._bind_cores) {
-        auto core_type = streamExecutorConfig._threadPreferredCoreType == LITTLE ? MAIN_CORE_PROC : EFFICIENT_CORE_PROC;
+        auto core_type = streamExecutorConfig._threadPreferredCoreType == LITTLE ? EFFICIENT_CORE_PROC : MAIN_CORE_PROC;
         auto num_cores = streamExecutorConfig._threadPreferredCoreType == LITTLE
                              ? streamExecutorConfig._small_core_streams
                              : streamExecutorConfig._big_core_streams;
-        auto cpu_ids = getAvailableCPUs(core_type, num_cores, streamExecutorConfig._cpu_task);
+        auto cpu_ids = getAvailableCPUs(core_type, num_cores, true);
         setCpuUsed(cpu_ids, 2);
     }
 
