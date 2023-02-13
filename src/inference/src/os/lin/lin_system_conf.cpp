@@ -92,6 +92,10 @@ struct CPU {
             }
         }
         std::vector<std::vector<std::string>>().swap(system_info_table);
+        for (int i = 0; i < _processors; i++) {
+            std::cout << _cpu_mapping_table[i][0] << " " << _cpu_mapping_table[i][1] << " " << _cpu_mapping_table[i][2]
+                      << " " << _cpu_mapping_table[i][3] << " " << _cpu_mapping_table[i][4] << "\n";
+        }
     }
 };
 static CPU cpu;
@@ -167,6 +171,7 @@ void parse_processor_info_linux(const int _processors,
             } else {
                 core_1 = std::stoi(system_info_table[nproc][0]);
 
+                _cpu_mapping_table[core_1][CPU_MAP_PROCESSOR_ID] = core_1;
                 _cpu_mapping_table[core_1][CPU_MAP_CORE_ID] = _cores;
                 _cpu_mapping_table[core_1][CPU_MAP_CORE_TYPE] = MAIN_CORE_PROC;
                 _cpu_mapping_table[core_1][CPU_MAP_GROUP_ID] = n_group;
@@ -311,12 +316,13 @@ bool cpuMapAvailable() {
     return cpu._cpu_mapping_table.size() > 0;
 }
 
-std::vector<int> getAvailableCPUs(const cpu_core_type_of_processor core_type, const int num_cpus) {
+std::vector<int> getAvailableCPUs(const cpu_core_type_of_processor core_type, const int num_cpus, const bool cpu_task) {
     std::vector<int> cpu_ids;
+    const int used_flag = cpu_task ? -1 : 2;
     if (core_type < PROC_TYPE_TABLE_SIZE && core_type >= ALL_PROC) {
         for (int i = 0; i < cpu._processors; i++) {
             if (cpu._cpu_mapping_table[i][CPU_MAP_CORE_TYPE] == core_type &&
-                cpu._cpu_mapping_table[i][CPU_MAP_USED_FLAG] <= 0) {
+                cpu._cpu_mapping_table[i][CPU_MAP_USED_FLAG] == used_flag) {
                 cpu_ids.push_back(cpu._cpu_mapping_table[i][CPU_MAP_PROCESSOR_ID]);
             }
             if (static_cast<int>(cpu_ids.size()) == num_cpus) {

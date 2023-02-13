@@ -163,7 +163,7 @@ std::vector<std::vector<int>> getNumOfAvailableCPUCores() {
 bool cpuMapAvailable() {
     return false;
 }
-std::vector<int> getAvailableCPUs(const cpu_core_type_of_processor core_type, const int num_cpus) {
+std::vector<int> getAvailableCPUs(const cpu_core_type_of_processor core_type, const int num_cpus, const bool cpu_task) {
     return {};
 }
 void setCpuUsed(std::vector<int> cpu_ids, int used) {}

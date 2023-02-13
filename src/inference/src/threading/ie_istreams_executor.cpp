@@ -416,6 +416,7 @@ IStreamsExecutor::Config IStreamsExecutor::Config::SetExecutorConfig(std::string
     Config streamExecutorConfig = Config{name, num_streams};
     if (name.find("CPU") == std::string::npos) {
         streamExecutorConfig._logic_core_disable = true;
+        streamExecutorConfig._cpu_task = false;
     }
     streamExecutorConfig._threads = num_streams;
     streamExecutorConfig._threadBindingType = thread_binding_type;
@@ -430,6 +431,15 @@ IStreamsExecutor::Config IStreamsExecutor::Config::SetExecutorConfig(std::string
         streamExecutorConfig._big_core_streams = num_streams;
         streamExecutorConfig._threads_per_stream_big = 1;
     }
+    if (streamExecutorConfig._bind_cores) {
+        auto core_type = streamExecutorConfig._threadPreferredCoreType == LITTLE ? MAIN_CORE_PROC : EFFICIENT_CORE_PROC;
+        auto num_cores = streamExecutorConfig._threadPreferredCoreType == LITTLE
+                             ? streamExecutorConfig._small_core_streams
+                             : streamExecutorConfig._big_core_streams;
+        auto cpu_ids = getAvailableCPUs(core_type, num_cores, streamExecutorConfig._cpu_task);
+        setCpuUsed(cpu_ids, 2);
+    }
+
     std::cout << "SetExecutorConfig-----name:" << name << " num_streams: " << num_streams
               << " thread_binding_type: " << thread_binding_type << " thread_core_type: " << thread_core_type << "\n";
     std::cout << "[ SetExecutorConfig info ] streams (threads): " << streamExecutorConfig._streams << "("

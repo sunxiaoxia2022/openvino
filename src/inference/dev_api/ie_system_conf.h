@@ -197,7 +197,7 @@ typedef enum {
  * @return     Array of available cpu ids.
  */
 INFERENCE_ENGINE_API_CPP(std::vector<int>)
-getAvailableCPUs(const cpu_core_type_of_processor core_type, const int num_cpus);
+getAvailableCPUs(const cpu_core_type_of_processor core_type, const int num_cpus, const bool cpu_task);
 
 /**
  * @enum column_of_cpu_mapping_table
