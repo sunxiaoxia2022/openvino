@@ -68,9 +68,9 @@ ExecNetwork::ExecNetwork(const InferenceEngine::CNNNetwork &network,
                          const std::shared_ptr<InferenceEngine::IInferencePlugin>& plugin) :
     InferenceEngine::ExecutableNetworkThreadSafeDefault{nullptr, nullptr},
     extensionManager(extMgr),
+    _network(network),
     _cfg{cfg},
-    _name{network.getName()},
-    _network(network) {
+    _name{network.getName()} {
     SetPointerToPlugin(plugin);
     auto function = network.getFunction();
     if (function == nullptr) {
@@ -99,7 +99,11 @@ ExecNetwork::ExecNetwork(const InferenceEngine::CNNNetwork &network,
         // special case when all InferRequests are muxed into a single queue
         _taskExecutor = _plugin->executorManager()->getExecutor("CPU");
     } else {
-        auto streamsExecutorConfig = InferenceEngine::IStreamsExecutor::Config::MakeDefaultMultiThreaded(_cfg.streamExecutorConfig, isFloatModel);
+        auto streamsExecutorConfig =
+            cpu_map_available()
+                ? _cfg.streamExecutorConfig
+                : InferenceEngine::IStreamsExecutor::Config::MakeDefaultMultiThreaded(_cfg.streamExecutorConfig,
+                                                                                      isFloatModel);
         streamsExecutorConfig._name = "CPUStreamsExecutor";
         _cfg.streamExecutorConfig._threads = streamsExecutorConfig._threads;
 #if FIX_62820 && (IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO)

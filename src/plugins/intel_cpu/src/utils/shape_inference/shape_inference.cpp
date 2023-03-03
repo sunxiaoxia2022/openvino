@@ -52,6 +52,7 @@
 #include "region_yolo_shape_inference.hpp"
 #include "reorg_yolo_shape_inference.hpp"
 #include "reverse_sequence_shape_inference.hpp"
+#include "reverse_shape_inference.hpp"
 #include "roi_align_shape_inference.hpp"
 #include "roll_shape_inference.hpp"
 #include "scatter_elements_update_shape_inference.hpp"
@@ -76,14 +77,6 @@
 
 namespace ov {
 namespace intel_cpu {
-
-void shape_inference(ov::Node* op,
-                     const std::vector<StaticShape>& input_shapes,
-                     std::vector<StaticShape>& output_shapes,
-                     const std::map<size_t, HostTensorPtr>& constant_data) {
-    auto shapeInfer = make_shape_inference(op->shared_from_this());
-    output_shapes = shapeInfer->infer(input_shapes, constant_data);
-}
 
 class entryBase : public IShapeInferCommon {
 public:
@@ -578,7 +571,6 @@ const IShapeInferCommonFactory::TRegistry IShapeInferCommonFactory::registry{
     _OV_OP_SHAPE_INFER_REG(ScatterElementsUpdate, entryIOC),
     _OV_OP_SHAPE_INFER_REG(ScatterNDUpdate, entryIO),
     _OV_OP_SHAPE_INFER_REG(Select, entryIO),
-    _OV_OP_SHAPE_INFER_REG(Select, entryIO),
     _OV_OP_SHAPE_INFER_REG(ShapeOf, entryIO),
     _OV_OP_SHAPE_INFER_REG(ShuffleChannels, entryIO),
     _OV_OP_SHAPE_INFER_REG(Slice, entryIOC),
@@ -644,6 +636,8 @@ const IStaticShapeInferFactory::TRegistry IStaticShapeInferFactory::registry{
     // Default opset
     _OV_OP_SHAPE_INFER_REG(Tile, ShapeInferBase),
     // Operators shape inferences for specific opset version should be specified below
+    // opset1
+    _OV_OP_SHAPE_INFER_REG(opset1::Reverse, ShapeInferBase),
 };
 
 #undef _OV_OP_NON_TEMPLATE_SHAPE_INFER_REG

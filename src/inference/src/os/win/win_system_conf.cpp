@@ -3,7 +3,7 @@
 //
 
 #ifndef NOMINMAX
-# define NOMINMAX
+#    define NOMINMAX
 #endif
 
 #include <windows.h>
@@ -11,38 +11,32 @@
 #include <memory>
 #include <vector>
 
-#include "ie_system_conf.h"
+#include "openvino/runtime/system_conf.hpp"
+#include "streams_executor.hpp"
 #include "threading/ie_parallel_custom_arena.hpp"
 
-namespace InferenceEngine {
+namespace ov {
 
-struct CPU {
-    int _processors = 0;
-    int _sockets = 0;
-    int _cores = 0;
-
-    std::vector<std::vector<int>> _proc_type_table;
-    std::vector<std::vector<int>> _cpu_mapping_table;
-
-    CPU() {
-        DWORD len = 0;
-        if (GetLogicalProcessorInformationEx(RelationAll, nullptr, &len) ||
-            GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
-            return;
-        }
-
-        std::shared_ptr<char> base_shared_ptr(new char[len]);
-        char* base_ptr = base_shared_ptr.get();
-        if (!GetLogicalProcessorInformationEx(RelationAll, (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)base_ptr, &len)) {
-            return;
-        }
-
-        _processors = GetMaximumProcessorCount(ALL_PROCESSOR_GROUPS);
-
-        parse_processor_info_win(base_ptr, len, _processors, _sockets, _cores, _proc_type_table, _cpu_mapping_table);
+void init_cpu(int& _processors,
+              int& _sockets,
+              int& _cores,
+              std::vector<std::vector<int>>& _proc_type_table,
+              std::vector<std::vector<int>>& _cpu_mapping_table) {
+    DWORD len = 0;
+    if (GetLogicalProcessorInformationEx(RelationAll, nullptr, &len) || GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        return;
     }
-};
-static CPU cpu;
+
+    std::shared_ptr<char> base_shared_ptr(new char[len]);
+    char* base_ptr = base_shared_ptr.get();
+    if (!GetLogicalProcessorInformationEx(RelationAll, (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)base_ptr, &len)) {
+        return;
+    }
+
+    _processors = GetMaximumProcessorCount(ALL_PROCESSOR_GROUPS);
+
+    parse_processor_info_win(base_ptr, len, _processors, _sockets, _cores, _proc_type_table, _cpu_mapping_table);
+}
 
 void parse_processor_info_win(const char* base_ptr,
                               const unsigned long len,
@@ -59,7 +53,6 @@ void parse_processor_info_win(const char* base_ptr,
     int list_len = 0;
     int base_proc = 0;
     int proc_count = 0;
-    int mask_len = 0;
     int group = 0;
     _sockets = -1;
 
@@ -90,7 +83,6 @@ void parse_processor_info_win(const char* base_ptr,
         if (info->Relationship == RelationProcessorPackage) {
             _sockets++;
             MaskToList(info->Processor.GroupMask->Mask);
-            mask_len = list_len;
             if (0 == _sockets) {
                 _proc_type_table.push_back(line_value_0);
             } else {
@@ -162,14 +154,14 @@ void parse_processor_info_win(const char* base_ptr,
         _proc_type_table[0] = line_value_0;
 
         for (int m = 1; m <= _sockets; m++) {
-            for (int n = 0; n <= EFFICIENT_CORE_PROC; n++) {
+            for (int n = 0; n < PROC_TYPE_TABLE_SIZE; n++) {
                 _proc_type_table[0][n] += _proc_type_table[m][n];
             }
         }
     }
 }
 
-int getNumberOfCPUCores(bool bigCoresOnly) {
+int get_number_of_cpu_cores(bool bigCoresOnly) {
     const int fallback_val = parallel_get_max_threads();
     DWORD sz = 0;
     // querying the size of the resulting structure, passing the nullptr for the buffer
@@ -179,7 +171,8 @@ int getNumberOfCPUCores(bool bigCoresOnly) {
 
     std::unique_ptr<uint8_t[]> ptr(new uint8_t[sz]);
     if (!GetLogicalProcessorInformationEx(RelationProcessorCore,
-            reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(ptr.get()), &sz))
+                                          reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(ptr.get()),
+                                          &sz))
         return fallback_val;
 
     int phys_cores = 0;
@@ -189,59 +182,21 @@ int getNumberOfCPUCores(bool bigCoresOnly) {
         phys_cores++;
     } while (offset < sz);
 
-    #if (IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO)
+#if (IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO)
     auto core_types = custom::info::core_types();
     if (bigCoresOnly && core_types.size() > 1) /*Hybrid CPU*/ {
-        phys_cores = custom::info::default_concurrency(custom::task_arena::constraints{}
-                                                               .set_core_type(core_types.back())
-                                                               .set_max_threads_per_core(1));
+        phys_cores = custom::info::default_concurrency(
+            custom::task_arena::constraints{}.set_core_type(core_types.back()).set_max_threads_per_core(1));
     }
-    #endif
+#endif
     return phys_cores;
 }
 
 #if !(IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO)
 // OMP/SEQ threading on the Windows doesn't support NUMA
-std::vector<int> getAvailableNUMANodes() { return {-1}; }
+std::vector<int> get_available_numa_nodes() {
+    return {-1};
+}
 #endif
 
-std::vector<std::vector<int>> getNumOfAvailableCPUCores() {
-    std::vector<std::vector<int>> proc_type_table;
-    std::vector<int> all_table;
-    if (cpu._sockets == 1) {
-        proc_type_table.resize(1, std::vector<int>(PROC_TYPE_TABLE_SIZE, 0));
-    } else {
-        proc_type_table.resize(2, std::vector<int>(PROC_TYPE_TABLE_SIZE, 0));
-    }
-    all_table.resize(PROC_TYPE_TABLE_SIZE, 0);
-    for (int i = 0; i < cpu._processors; i++) {
-        for (int socket_id = 0; socket_id < cpu._sockets; socket_id++) {
-            for (int type = MAIN_CORE_PROC; type < PROC_TYPE_TABLE_SIZE; type++) {
-                if (cpu._cpu_mapping_table[i][CPU_MAP_CORE_TYPE] == type &&
-                    cpu._cpu_mapping_table[i][CPU_MAP_SOCKET_ID] == socket_id &&
-                    cpu._cpu_mapping_table[i][CPU_MAP_USED_FLAG] <= 0) {
-                    proc_type_table[socket_id][type]++;
-                    proc_type_table[socket_id][ALL_PROC]++;
-                    all_table[type]++;
-                    all_table[ALL_PROC]++;
-                }
-            }
-        }
-    }
-    if (cpu._sockets > 1) {
-        proc_type_table.insert(proc_type_table.begin(), all_table);
-    }
-    return proc_type_table;
-}
-
-bool cpuMapAvailable() {
-    return false;
-}
-
-std::vector<int> getAvailableCPUs(const cpu_core_type_of_processor core_type, const int num_cpus, const bool cpu_task) {
-    return {};
-}
-
-void setCpuUsed(std::vector<int> cpu_ids, int used) {}
-
-}  // namespace InferenceEngine
+}  // namespace ov
