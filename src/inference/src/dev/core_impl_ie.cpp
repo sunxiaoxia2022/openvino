@@ -240,7 +240,9 @@ std::map<std::string, std::string> ov::CoreImpl::GetSupportedConfig(const std::s
     }
     for (auto&& config : configs) {
         auto parsed = parseDeviceNameIntoConfig(config.first);
-        if (deviceName.find(parsed._deviceName) != std::string::npos) {
+        // if (deviceName.find(parsed._deviceName) != std::string::npos) {
+        std::string devName = config.first.find("GPU") != std::string::npos ? config.first : parsed._deviceName;
+        if (deviceName.find(devName) != std::string::npos) {
             std::stringstream strm(config.second);
             std::map<std::string, std::string> device_configs;
             util::Read<std::map<std::string, std::string>>{}(strm, device_configs);

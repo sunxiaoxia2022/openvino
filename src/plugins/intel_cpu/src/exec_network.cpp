@@ -104,6 +104,16 @@ ExecNetwork::ExecNetwork(const InferenceEngine::CNNNetwork &network,
                 ? _cfg.streamExecutorConfig
                 : InferenceEngine::IStreamsExecutor::Config::MakeDefaultMultiThreaded(_cfg.streamExecutorConfig,
                                                                                       isFloatModel);
+        std::cout << "[ streams info ] " << " streams (threads): " << streamsExecutorConfig._streams << "("
+                   << streamsExecutorConfig._threads_per_stream_big *
+                              (streamsExecutorConfig._big_core_streams + streamsExecutorConfig._big_core_logic_streams) +
+                          streamsExecutorConfig._threads_per_stream_small * streamsExecutorConfig._small_core_streams
+                   << ") -- PCore: " << streamsExecutorConfig._big_core_streams << "("
+                   << streamsExecutorConfig._threads_per_stream_big << ") "
+                   << streamsExecutorConfig._big_core_logic_streams << "("
+                   << streamsExecutorConfig._threads_per_stream_big
+                   << ")  ECore: " << streamsExecutorConfig._small_core_streams << "("
+                   << streamsExecutorConfig._threads_per_stream_small << ")\n";
         streamsExecutorConfig._name = "CPUStreamsExecutor";
         _cfg.streamExecutorConfig._threads = streamsExecutorConfig._threads;
 #if FIX_62820 && (IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO)
