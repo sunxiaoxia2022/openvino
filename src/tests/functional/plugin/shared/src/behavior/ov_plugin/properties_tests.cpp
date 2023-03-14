@@ -350,7 +350,7 @@ std::vector<ov::AnyMap> OVPropertiesTestsWithComplieModelProps::getPropertiesVal
     res.push_back({{ov::PropertyName(ov::inference_num_threads.name(), ov::inference_num_threads.mutability), 1}});
     res.push_back({{ov::PropertyName(ov::compilation_num_threads.name(), ov::compilation_num_threads.mutability), 1}});
 
-    ov::Affinity affinities[] = {ov::Affinity::NONE , ov::Affinity::CORE, ov::Affinity::NUMA, ov::Affinity::HYBRID_AWARE};
+    ov::Affinity affinities[] = {ov::Affinity::NONE , ov::Affinity::CORE, ov::Affinity::NUMA};
     for (auto &affinity : affinities) {
         res.push_back({{ov::PropertyName(ov::affinity.name(), ov::affinity.mutability), affinity}});
     }

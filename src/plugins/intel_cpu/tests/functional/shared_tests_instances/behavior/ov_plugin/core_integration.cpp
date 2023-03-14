@@ -203,7 +203,7 @@ TEST(OVClassBasicTest, smoke_SetConfigAffinity) {
     auto coreTypes = InferenceEngine::getAvailableCoresTypes();
     auto defaultBindThreadParameter = ov::Affinity::NONE;
     if (coreTypes.size() > 1) {
-        defaultBindThreadParameter = ov::Affinity::HYBRID_AWARE;
+        defaultBindThreadParameter = ov::Affinity::CORE;
     } else if (numaNodes.size() > 1) {
         defaultBindThreadParameter = ov::Affinity::NUMA;
     }
@@ -213,7 +213,7 @@ TEST(OVClassBasicTest, smoke_SetConfigAffinity) {
     OV_ASSERT_NO_THROW(value = ie.get_property("CPU", ov::affinity));
     ASSERT_EQ(defaultBindThreadParameter, value);
 
-    const ov::Affinity affinity = defaultBindThreadParameter == ov::Affinity::HYBRID_AWARE ? ov::Affinity::NUMA : ov::Affinity::HYBRID_AWARE;
+    const ov::Affinity affinity = defaultBindThreadParameter == ov::Affinity::CORE ? ov::Affinity::NUMA : ov::Affinity::CORE;
     OV_ASSERT_NO_THROW(ie.set_property("CPU", ov::affinity(affinity)));
     OV_ASSERT_NO_THROW(value = ie.get_property("CPU", ov::affinity));
     ASSERT_EQ(affinity, value);

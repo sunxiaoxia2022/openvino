@@ -68,7 +68,7 @@ auto default_affinity = [] {
         auto numaNodes = InferenceEngine::getAvailableNUMANodes();
         auto coreTypes = InferenceEngine::getAvailableCoresTypes();
         if (coreTypes.size() > 1) {
-                return ov::Affinity::HYBRID_AWARE;
+                return ov::Affinity::CORE;
         } else if (numaNodes.size() > 1) {
                 return ov::Affinity::NUMA;
         } else {

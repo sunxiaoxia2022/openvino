@@ -39,8 +39,8 @@ void IStreamsExecutor::Config::set_property(const ov::AnyMap& property) {
                                          ? IStreamsExecutor::ThreadBindingType::CORES
                                          : IStreamsExecutor::ThreadBindingType::NUMA;
 #endif
-            } else if (value.as<std::string>() == CONFIG_VALUE(HYBRID_AWARE)) {
-                _threadBindingType = IStreamsExecutor::ThreadBindingType::HYBRID_AWARE;
+            // } else if (value.as<std::string>() == CONFIG_VALUE(HYBRID_AWARE)) {
+            //     _threadBindingType = IStreamsExecutor::ThreadBindingType::HYBRID_AWARE;
             } else if (value.as<std::string>() == CONFIG_VALUE(NO)) {
                 _threadBindingType = IStreamsExecutor::ThreadBindingType::NONE;
             } else {
@@ -65,9 +65,9 @@ void IStreamsExecutor::Config::set_property(const ov::AnyMap& property) {
             case ov::Affinity::NUMA:
                 _threadBindingType = ThreadBindingType::NUMA;
                 break;
-            case ov::Affinity::HYBRID_AWARE:
-                _threadBindingType = ThreadBindingType::HYBRID_AWARE;
-                break;
+            // case ov::Affinity::HYBRID_AWARE:
+            //     _threadBindingType = ThreadBindingType::HYBRID_AWARE;
+            //     break;
             default:
                 OPENVINO_THROW("Unsupported affinity type");
             }
@@ -240,7 +240,7 @@ ov::Any IStreamsExecutor::Config::get_property(const std::string& key) const {
         case IStreamsExecutor::ThreadBindingType::NUMA:
             return ov::Affinity::NUMA;
         case IStreamsExecutor::ThreadBindingType::HYBRID_AWARE:
-            return ov::Affinity::HYBRID_AWARE;
+            return ov::Affinity::CORE;
         }
     } else if (key == CONFIG_KEY(CPU_BIND_THREAD)) {
         switch (_threadBindingType) {
@@ -251,7 +251,7 @@ ov::Any IStreamsExecutor::Config::get_property(const std::string& key) const {
         case IStreamsExecutor::ThreadBindingType::NUMA:
             return {CONFIG_VALUE(NUMA)};
         case IStreamsExecutor::ThreadBindingType::HYBRID_AWARE:
-            return {CONFIG_VALUE(HYBRID_AWARE)};
+            return {CONFIG_VALUE(YES)};
         }
     } else if (key == CONFIG_KEY(CPU_THROUGHPUT_STREAMS)) {
         return {std::to_string(_streams)};

@@ -916,7 +916,7 @@ enum class Affinity {
     CORE = 0,   //!<  Pin threads to cores, best for static benchmarks
     NUMA = 1,   //!<  Pin threads to NUMA nodes, best for real-life, contented cases. On the Windows and MacOS* this
                 //!<  option behaves as CORE
-    HYBRID_AWARE = 2,  //!< Let the runtime to do pinning to the cores types, e.g. prefer the "big" cores for latency
+    //HYBRID_AWARE = 2,  //!< Let the runtime to do pinning to the cores types, e.g. prefer the "big" cores for latency
                        //!< tasks. On the hybrid CPUs this option is default
 };
 
@@ -929,8 +929,6 @@ inline std::ostream& operator<<(std::ostream& os, const Affinity& affinity) {
         return os << "CORE";
     case Affinity::NUMA:
         return os << "NUMA";
-    case Affinity::HYBRID_AWARE:
-        return os << "HYBRID_AWARE";
     default:
         OPENVINO_THROW("Unsupported affinity pattern");
     }
@@ -945,8 +943,6 @@ inline std::istream& operator>>(std::istream& is, Affinity& affinity) {
         affinity = Affinity::CORE;
     } else if (str == "NUMA") {
         affinity = Affinity::NUMA;
-    } else if (str == "HYBRID_AWARE") {
-        affinity = Affinity::HYBRID_AWARE;
     } else {
         OPENVINO_THROW("Unsupported affinity pattern: ", str);
     }

@@ -496,7 +496,7 @@ Parameter Engine::GetConfig(const std::string& name, const std::map<std::string,
         case InferenceEngine::IStreamsExecutor::ThreadBindingType::NUMA:
             return ov::Affinity::NUMA;
         case InferenceEngine::IStreamsExecutor::ThreadBindingType::HYBRID_AWARE:
-            return ov::Affinity::HYBRID_AWARE;
+            return ov::Affinity::CORE;
         }
         return ov::Affinity::NONE;
     } else if (name == ov::inference_num_threads) {

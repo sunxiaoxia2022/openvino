@@ -17,8 +17,8 @@ void regmodule_properties(py::module m) {
     py::enum_<ov::Affinity>(m_properties, "Affinity", py::arithmetic())
         .value("NONE", ov::Affinity::NONE)
         .value("CORE", ov::Affinity::CORE)
-        .value("NUMA", ov::Affinity::NUMA)
-        .value("HYBRID_AWARE", ov::Affinity::HYBRID_AWARE);
+        .value("NUMA", ov::Affinity::NUMA);
+        // .value("HYBRID_AWARE", ov::Affinity::HYBRID_AWARE);
 
     // Submodule properties - properties
     wrap_property_RW(m_properties, ov::enable_profiling, "enable_profiling");
