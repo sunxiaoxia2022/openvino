@@ -243,8 +243,11 @@ StreamCfg parse_streams_table(std::vector<std::vector<int>> streams_table) {
             streams_info.big_core_streams = streams_table[i][NUMBER_OF_STREAMS];
             streams_info.threads_per_stream_big = streams_table[i][THREADS_PER_STREAM];
         } else if (streams_table[i][PROC_TYPE] == EFFICIENT_CORE_PROC) {
-            streams_info.small_core_streams = streams_table[i][NUMBER_OF_STREAMS];
-            streams_info.threads_per_stream_small = streams_table[i][THREADS_PER_STREAM];
+            streams_info.small_core_streams = streams_table[i][THREADS_PER_STREAM] == 1
+                                                  ? streams_table[i][NUMBER_OF_STREAMS] / 2
+                                                  : streams_table[i][NUMBER_OF_STREAMS];
+            streams_info.threads_per_stream_small =
+                streams_table[i][THREADS_PER_STREAM] == 1 ? 2 : streams_table[i][THREADS_PER_STREAM];
         } else if (streams_table[i][PROC_TYPE] == HYPER_THREADING_PROC) {
             streams_info.big_core_logic_streams = streams_table[i][NUMBER_OF_STREAMS];
             streams_info.threads_per_stream_big = streams_table[i][THREADS_PER_STREAM];
