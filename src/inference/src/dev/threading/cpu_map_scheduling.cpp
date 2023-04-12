@@ -68,7 +68,7 @@ bool get_cpu_pinning(bool& input_value,
     bool latency = num_streams <= num_sockets && num_streams > 0;
 
     if (proc_type_table[0][EFFICIENT_CORE_PROC] > 0 &&
-        proc_type_table[0][EFFICIENT_CORE_PROC] == proc_type_table[0][ALL_PROC]) {
+        proc_type_table[0][EFFICIENT_CORE_PROC] < proc_type_table[0][ALL_PROC]) {
         result_value =
             input_changed
                 ? input_value
@@ -76,7 +76,7 @@ bool get_cpu_pinning(bool& input_value,
     } else {
         result_value = input_changed
                            ? input_value
-                           : (latency ? false : true);//(bind_type == threading::IStreamsExecutor::ThreadBindingType::NUMA ? false : true);
+                           : (bind_type == threading::IStreamsExecutor::ThreadBindingType::NUMA ? false : true);
 #if (IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO)
 #    if defined(__APPLE__) || defined(_WIN32)
         result_value = false;
