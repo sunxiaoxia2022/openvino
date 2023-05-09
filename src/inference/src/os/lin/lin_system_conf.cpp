@@ -43,7 +43,7 @@ CPU::CPU() {
         return 0;
     };
 
-    if (!GetCatchInfoLinux()) {
+    if (false) {
         parse_processor_info_linux(_processors,
                                    system_info_table,
                                    _numa_nodes,
