@@ -40,7 +40,8 @@ void get_cur_stream_info(const int stream_id,
                          StreamCreateType& stream_type,
                          int& concurrency,
                          int& core_type,
-                         int& numa_node_id);
+                         int& numa_node_id,
+                         int& max_threads_per_core);
 
 /**
  * @brief      Reserve cpu resource by streams info
