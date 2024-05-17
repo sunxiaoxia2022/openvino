@@ -21,11 +21,13 @@
 #include "openvino/runtime/common.hpp"
 #include "openvino/runtime/threading/istreams_executor.hpp"
 #include "openvino/runtime/threading/itask_executor.hpp"
+#include "openvino/runtime/compiled_model.hpp"
+#include "openvino/runtime/iasync_infer_request.hpp"
 
 namespace ov {
 
 namespace threading {
-enum MsgType { TP, START_INFER, CALL_BACK, REDUCE };
+enum MsgType { START_INFER, TENSOR_PARALLEL, CALL_BACK, REDUCE, QUIT };
 
 struct MessageInfo {
     MsgType msg_type;
@@ -33,10 +35,11 @@ struct MessageInfo {
     void* buf;
     Task task;
 };
-class OPENVINO_RUNTIME_API MessageManage {
+class OPENVINO_RUNTIME_API MessageManager {
 public:
-    MessageManage();
-    void send_message(MessageInfo msg_info);
+    MessageManager();
+
+    void send_message(const MessageInfo& msg_info);
 
     std::vector<MessageInfo> wait_message(int cur_rank, int streams_num);
 
@@ -46,8 +49,21 @@ public:
 
     void server_wait(int streams_num);
 
-    ~MessageManage();
+    void stop_server_thread();
+
+    void clear();
+
+    ~MessageManager();
+
+    void set_sub_compiled_models(std::vector<std::shared_ptr<ov::ICompiledModel>> models);
+    std::vector<std::shared_ptr<ov::ICompiledModel>> get_sub_compiled_models();
+
+    void set_sub_infer_requests(std::vector<std::shared_ptr<ov::IAsyncInferRequest>> requests);
+    std::vector<std::shared_ptr<ov::IAsyncInferRequest>> get_sub_infer_requests();
+
 private:
+    std::vector<std::shared_ptr<ov::ICompiledModel>> _sub_compiled_models;
+    std::vector<std::shared_ptr<ov::IAsyncInferRequest>> _sub_infer_requests;
     std::thread _serverThread;
     bool _isServerStopped = false;
     std::vector<MessageInfo> _messageQueue;
@@ -63,6 +79,6 @@ private:
     std::condition_variable _reduceCondVar;
 };
 
-OPENVINO_RUNTIME_API std::shared_ptr<MessageManage> message_manager();
+OPENVINO_RUNTIME_API std::shared_ptr<MessageManager> message_manager();
 }  // namespace threading
 }  // namespace ov

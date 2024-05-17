@@ -109,14 +109,12 @@ void SyncInferRequest::infer() {
     OV_ITT_SCOPED_TASK(itt::domains::intel_cpu, m_profiling_task);
     auto graphLock = m_compiled_model->get_graph();
     m_graph = &(graphLock._graph);
-    auto streams_executor = m_graph->context->getCPUStreamExecutor();
+    auto message = ov::threading::message_manager();
 
     throw_if_canceled();
-    auto requests = m_asyncRequest->getSubInferRequest();
-    // std::cout << "[ infer ] " << requests.size() << "\n";
-    if (requests.size() > 0) {
-        auto message = ov::threading::message_manager();
-        message->server_wait(requests.size());
+    // std::cout << "[ infer ] " << m_asyncRequest->m_has_sub_infers << "\n";
+    if (m_asyncRequest->m_has_sub_infers) {
+        message->server_wait(message->get_sub_infer_requests().size());
         ov::threading::MessageInfo msg_info;
         msg_info.msg_type = ov::threading::MsgType::START_INFER;
         ov::threading::Task task = [&] {
@@ -330,10 +328,10 @@ void SyncInferRequest::change_default_ptr() {
 }
 
 std::vector<ov::SoPtr<ov::IVariableState>> SyncInferRequest::query_state() const {
-    auto requests = m_asyncRequest->getSubInferRequest();
-    if (requests.size() > 0) {
+    if (m_asyncRequest->m_has_sub_infers) {
+        auto message = ov::threading::message_manager();
         std::vector<ov::SoPtr<ov::IVariableState>> states;
-        for (auto request : requests) {
+        for (auto request : message->get_sub_infer_requests()) {
             auto cur = request->query_state();
             states.insert(states.end(), cur.begin(), cur.end());
         }
@@ -638,29 +636,26 @@ SyncInferRequest::OutputControlBlock::OutputControlBlock(const ov::element::Type
 
 void SyncInferRequest::sub_streams_infer() {
     std::map<ov::Output<const ov::Node>, ov::SoPtr<ov::ITensor>> input_tensors;
-    auto requests = m_asyncRequest->getSubInferRequest();
-    auto inputs = m_asyncRequest->get_inputs();
-    auto outputs = m_asyncRequest->get_outputs();
     auto message = ov::threading::message_manager();
+    auto requests = message->get_sub_infer_requests();
+    auto inputs = get_inputs();
+    auto outputs = get_outputs();
+
     size_t requests_num = requests.size();
-    size_t requests_count = 0;
     // std::cout << "[ sub_streams_infer ] inputs: " << inputs.size() << " requests: " << requests_num << "\n";
 
     if (requests.size() > 0) {
         for (const auto& output : outputs) {
-            auto main_tensor = get_tensor(output);
-            if (main_tensor->get_size() == 0) {
-                auto tensor = requests[0]->get_tensor(output);
-                set_tensor(output, tensor);
-            }
+            auto tensor = requests[0]->get_tensor(output);
+            set_tensor(output, tensor);
         }
         for (size_t i = 0; i < requests_num; i++) {
             for (auto& input : inputs) {
-                auto tensor = m_asyncRequest->get_tensor(input);
+                auto tensor = get_tensor(input);
                 requests[i]->set_tensor(input, tensor);
             }
 
-            requests[i]->set_callback([i, requests, message](const std::exception_ptr& ptr) {
+            requests[i]->set_callback([i, message](const std::exception_ptr& ptr) {
                 // std::cout << "set_callback------ " << i << "\n";
                 ov::threading::MessageInfo msg_info;
                 msg_info.msg_type = ov::threading::MsgType::CALL_BACK;
