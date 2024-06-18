@@ -26,7 +26,6 @@
 #include "transformations/cpu_opset/common/op/fully_connected.hpp"
 #include "utils/debug_capabilities.h"
 #include "utils/general_utils.h"
-#include "utils/profiler.hpp"
 
 using namespace dnnl;
 using namespace ov::element;
@@ -100,7 +99,6 @@ void FullyConnected::prepareParams() {
 
 void FullyConnected::execute(dnnl::stream strm) {
     if (enable_tensor_parallel) {
-        PROFILE(_prof1, "fc_sync");
         id = sub_memory->get_memory_id(w_rank);
         sub_memory->set_memory_used(id, w_rank);
         while (true) {
@@ -118,12 +116,10 @@ void FullyConnected::execute(dnnl::stream strm) {
     }
 
     {
-        PROFILE(_prof1, "fc_exec");
         executor->execute(memory);
     }
 
     if (enable_tensor_parallel) {
-        PROFILE(_prof1, "fc_post");
         // dst
         auto dst = getDstMemoryAtPort(0);
         auto dst_ptr = static_cast<uint8_t*>(dst->getData());
