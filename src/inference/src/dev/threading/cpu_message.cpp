@@ -15,7 +15,6 @@ namespace threading {
 
 MessageManager::MessageManager() {
     _num_sub_streams = 0;
-    call_back_count = 0;
 }
 
 MessageManager::~MessageManager() {}
@@ -31,10 +30,8 @@ void MessageManager::send_message(const MessageInfo& msg_info) {
 
 void MessageManager::infer_wait() {
     std::unique_lock<std::mutex> lock(_inferMutex);
-    _inferCondVar.wait(lock, [&] {
-        return call_back_count.load() >= _num_sub_streams;
-    });
-    call_back_count = 0;
+    std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+    _inferCondVar.wait(lock);
 }
 
 void MessageManager::server_wait() {
@@ -64,7 +61,6 @@ void MessageManager::server_wait() {
                         count++;
                         // std::cout << "server_wait CALL_BACK: " << call_back_count << "/" << _num_sub_streams << "\n";
                         if (count == _num_sub_streams) {
-                            call_back_count = count;
                             count = 0;
                             _inferCondVar.notify_one();
                         }
