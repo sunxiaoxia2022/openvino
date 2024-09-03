@@ -793,6 +793,16 @@ protected:
     std::shared_ptr<std::unordered_map<std::string, MemoryPtr>> privateWeightCache
     = std::make_shared<std::unordered_map<std::string, MemoryPtr>>();
 
+    void setInferCount(int count) {
+        infer_count = count;
+    }
+
+    int infer_count;
+    double fc_time = 0.0;
+    double fc_exe_time = 0.0;
+    double fc_post_time = 0.0;
+    double fc_concat_time = 0.0;
+
 private:
     static void removeEdge(const EdgePtr edge, std::vector<EdgeWeakPtr> &edges) {
         edges.erase(std::remove_if(edges.begin(), edges.end(),

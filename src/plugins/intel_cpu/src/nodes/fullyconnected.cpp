@@ -190,6 +190,7 @@ void FullyConnected::execTensorParallelSync() {
                 if (wait_list[idx] > 0 && tp_cfg.sub_memory->_memorys_table[tp_cfg.id][idx].flag) {
                     auto new_ptr = static_cast<uint8_t*>(tp_cfg.sub_memory->_memorys_table[tp_cfg.id][idx].send_buf);
                     const auto copySize = splited_dim_vec[idx] * prec.size();    // bytes of half selected dim.
+                    auto start1 = std::chrono::high_resolution_clock::now();
                     const size_t unloop = 8;
                     size_t step = count / unloop;
                     parallel_for(step, [&](size_t i){
@@ -209,6 +210,11 @@ void FullyConnected::execTensorParallelSync() {
                         cpu_parallel_memcpy(dst_ptr + dst_offset, new_ptr + src_offset, copySize);
                     }
                     wait_list[idx] = 0;
+                    auto start2 = std::chrono::high_resolution_clock::now();
+                    if (infer_count >= 300 && infer_count <= 309) {
+                        fc_concat_time +=
+                            std::chrono::duration_cast<std::chrono::nanoseconds>(start2 - start1).count() * 0.000001;
+                    }
                 }
                 wait_size += wait_list[idx];
             }
@@ -223,11 +229,18 @@ void FullyConnected::execTensorParallelSync() {
     }
 }
 void FullyConnected::execute(dnnl::stream strm) {
+    auto start0 = std::chrono::high_resolution_clock::now();
     initTensorParallelSync();
-
+    auto start1 = std::chrono::high_resolution_clock::now();
     executor->execute(memory);
-
+    auto start2 = std::chrono::high_resolution_clock::now();
     execTensorParallelSync();
+    auto start3 = std::chrono::high_resolution_clock::now();
+    if (infer_count >= 300 && infer_count <= 309) {
+        fc_time += std::chrono::duration_cast<std::chrono::nanoseconds>(start3 - start0).count() * 0.000001;
+        fc_exe_time += std::chrono::duration_cast<std::chrono::nanoseconds>(start2 - start1).count() * 0.000001;
+        fc_post_time += std::chrono::duration_cast<std::chrono::nanoseconds>(start3 - start2).count() * 0.000001;
+    }
 }
 
 void FullyConnected::executeDynamicImpl(dnnl::stream strm) {
