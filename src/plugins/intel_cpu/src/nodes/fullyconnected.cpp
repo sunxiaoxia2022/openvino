@@ -211,9 +211,9 @@ void FullyConnected::execTensorParallelSync() {
                     }
                     wait_list[idx] = 0;
                     auto start2 = std::chrono::high_resolution_clock::now();
-                    if (infer_count >= 300 && infer_count <= 309) {
+                    if ((infer_count >= 600 && infer_count <= 609) || (infer_count >= 700 && infer_count <= 709)) {
                         fc_concat_time +=
-                            std::chrono::duration_cast<std::chrono::nanoseconds>(start2 - start1).count() * 0.000001;
+                            std::chrono::duration_cast<std::chrono::nanoseconds>(start2 - start1).count() * 0.001;
                     }
                 }
                 wait_size += wait_list[idx];
@@ -236,10 +236,26 @@ void FullyConnected::execute(dnnl::stream strm) {
     auto start2 = std::chrono::high_resolution_clock::now();
     execTensorParallelSync();
     auto start3 = std::chrono::high_resolution_clock::now();
-    if (infer_count >= 300 && infer_count <= 309) {
-        fc_time += std::chrono::duration_cast<std::chrono::nanoseconds>(start3 - start0).count() * 0.000001;
-        fc_exe_time += std::chrono::duration_cast<std::chrono::nanoseconds>(start2 - start1).count() * 0.000001;
-        fc_post_time += std::chrono::duration_cast<std::chrono::nanoseconds>(start3 - start2).count() * 0.000001;
+    if ((infer_count >= 600 && infer_count <= 609) || (infer_count >= 700 && infer_count <= 709)) {
+        fc_time += std::chrono::duration_cast<std::chrono::nanoseconds>(start3 - start0).count() * 0.001;
+        fc_exe_time += std::chrono::duration_cast<std::chrono::nanoseconds>(start2 - start1).count() * 0.001;
+        fc_post_time += std::chrono::duration_cast<std::chrono::nanoseconds>(start3 - start2).count() * 0.001;
+    }
+    if (infer_count == 610 || infer_count == 710) {
+        fc_time /= 10;
+        fc_exe_time /= 10;
+        fc_post_time /= 10;
+        fc_concat_time /= 10;
+        auto shape = getSrcMemoryAtPort(WEIGHTS_ID)->getShape().toString();
+        std::stringstream ss;
+        ss << "node: " << getName() << " shape: " << shape << " socket: " << get_current_socket_id()
+           << " fc: " << fc_time << " fc_exe: " << fc_exe_time << " fc_post: " << fc_post_time
+           << " fc_concat: " << fc_concat_time << "\n";
+        std::cout << ss.str();
+        fc_time = 0.0;
+        fc_exe_time = 0.0;
+        fc_post_time = 0.0;
+        fc_concat_time = 0.0;
     }
 }
 

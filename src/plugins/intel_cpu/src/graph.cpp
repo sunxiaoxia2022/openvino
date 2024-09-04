@@ -1340,10 +1340,6 @@ public:
 template<typename UpdateStrategy>
 void Graph::InferDynamic(SyncInferRequest* request, UpdateStrategy&& update) {
     size_t inferCounter = 0;
-    double fc_time = 0.0;
-    double fc_exe_time = 0.0;
-    double fc_post_time = 0.0;
-    double fc_concat_time = 0.0;
     for (auto stopIndx : m_executableSyncNodesInds) {
         update(stopIndx);
 
@@ -1356,26 +1352,10 @@ void Graph::InferDynamic(SyncInferRequest* request, UpdateStrategy&& update) {
                 request->throw_if_canceled();
             try {
                 ExecuteNode(node, m_stream);
-                if (infer_count == 310) {
-                    fc_time += node->fc_time;
-                    fc_exe_time += node->fc_exe_time;
-                    fc_post_time += node->fc_post_time;
-                    fc_concat_time += node->fc_concat_time;
-                }
             } catch (const std::exception& exp) {
                 OPENVINO_THROW(node, exp.what());
             }
         }
-    }
-    if (infer_count == 310) {
-        fc_time /= 10;
-        fc_exe_time /= 10;
-        fc_post_time /= 10;
-        fc_concat_time /= 10;
-        std::stringstream ss;
-        ss << " socket: " << get_current_socket_id() << " fc: " << fc_time << " fc_exe_time: " << fc_exe_time
-           << " fc_post_time: " << fc_post_time << " fc_concat_time: " << fc_concat_time << "\n";
-        std::cout << ss.str();
     }
 }
 
