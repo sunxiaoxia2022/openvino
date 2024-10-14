@@ -25,10 +25,11 @@ std::shared_ptr<ov::threading::ITaskExecutor> create_task_executor(const std::sh
         // the CPU behavior
         return plugin->get_executor_manager()->get_executor("GPU");
     } else if (config.get_property(ov::hint::enable_cpu_pinning)) {
+        std::cout << "[create_task_executor] " << config.get_property(ov::num_streams) << " , " << config.get_property(ov::compilation_num_threads) << "\n";
         return std::make_shared<ov::threading::CPUStreamsExecutor>(
             ov::threading::IStreamsExecutor::Config{"Intel GPU plugin executor",
                                                     config.get_property(ov::num_streams),
-                                                    1,
+                                                    4,
                                                     ov::hint::SchedulingCoreType::PCORE_ONLY,
                                                     true});
     } else {
