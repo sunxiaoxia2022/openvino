@@ -114,7 +114,8 @@ public:
           implPriorities(std::move(implPriorities)),
           privateWeighCache(std::move(privateWeighCache)),
           numNumaNodes(graphContext->getNumNumaNodes()),
-          threadPool(graphContext->getThreadPool()) {
+          threadPools(graphContext->getThreadPools()),
+          partitioner(graphContext->getCpuParallel()->get_partitioner()) {
         auto cpuStreamsExecutor = graphContext->getCPUStreamExecutor();
         curNumaNodeId = std::max(0, cpuStreamsExecutor ? cpuStreamsExecutor->get_numa_node_id() : curNumaNodeId);
     }
@@ -146,7 +147,11 @@ public:
     }
 
     [[nodiscard]] std::shared_ptr<ThreadPool> getThreadPool() const {
-        return threadPool;
+        return threadPools[static_cast<int>(partitioner)];
+    }
+
+    [[nodiscard]] std::shared_ptr<ThreadPool> getThreadPool(int index) const {
+        return threadPools[index];
     }
 
 private:
@@ -161,7 +166,8 @@ private:
     std::shared_ptr<std::unordered_map<std::string, MemoryPtr>> privateWeighCache;
     int numNumaNodes;
     int curNumaNodeId = -1;
-    std::shared_ptr<ThreadPool> threadPool;
+    std::vector<std::shared_ptr<ThreadPool>> threadPools;
+    ov::hint::TbbPartitioner partitioner;
 };
 
 class ExecutorFactoryLegacy {

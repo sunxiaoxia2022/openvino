@@ -43,7 +43,8 @@ GraphContext::GraphContext(Config config,
         m_rtScratchPads.push_back(std::make_shared<DnnlScratchPad>(getEngine(), i));
     }
 
-    m_threadPool = std::make_shared<ThreadPool>(m_cpuParallel);
+    m_threadPools.push_back(std::make_shared<ThreadPool>(ov::hint::TbbPartitioner::STATIC));
+    m_threadPools.push_back(std::make_shared<ThreadPool>(ov::hint::TbbPartitioner::AUTO));
 }
 
 const dnnl::engine& GraphContext::getEngine() {

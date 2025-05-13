@@ -11,21 +11,22 @@
 
 #include "cpu_parallel.hpp"
 #include "openvino/core/parallel.hpp"
+#if OV_THREAD == OV_THREAD_TBB
+#    include "tbb/parallel_for.h"
+#    include "tbb/task_arena.h"
+#endif
 
 namespace ov::intel_cpu {
 
 class ThreadPool : public dnnl::threadpool_interop::threadpool_iface {
 private:
-    std::shared_ptr<CpuParallel> m_cpu_parallel = nullptr;
+    // std::shared_ptr<CpuParallel> m_cpu_parallel = nullptr;
     ov::hint::TbbPartitioner m_partitoner = ov::hint::TbbPartitioner::STATIC;
     size_t m_multiplier = 32;
 
 public:
     ThreadPool() = default;
-    ThreadPool(const std::shared_ptr<CpuParallel> cpu_parallel) : m_cpu_parallel(cpu_parallel) {
-        m_partitoner = m_cpu_parallel->get_partitioner();
-        m_multiplier = m_cpu_parallel->get_multiplier();
-    }
+    ThreadPool(ov::hint::TbbPartitioner partitoner) : m_partitoner(partitoner) {}
     int get_num_threads() const override {
         int num = m_partitoner == ov::hint::TbbPartitioner::STATIC ? parallel_get_max_threads()
                                                                    : parallel_get_max_threads() * m_multiplier;
@@ -38,13 +39,21 @@ public:
         return 0;
     }
     void parallel_for(int n, const std::function<void(int, int)>& fn) override {
-        m_cpu_parallel->parallel_simple(n, fn);
-    }
-    void set_partitioner(ov::hint::TbbPartitioner partitoner) {
-        m_partitoner = partitoner;
-    }
-    void set_multiplier(size_t multiplier) {
-        m_multiplier = multiplier;
+#if OV_THREAD == OV_THREAD_TBB
+        if (m_partitoner == ov::hint::TbbPartitioner::STATIC) {
+            tbb::parallel_for(
+                0,
+                n,
+                [&](int ithr) {
+                    fn(ithr, n);
+                },
+                tbb::static_partitioner());
+        } else {
+            tbb::parallel_for(0, n, [&](int ithr) {
+                fn(ithr, n);
+            });
+        }
+#endif
     }
 };
 

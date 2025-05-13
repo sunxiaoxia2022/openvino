@@ -69,8 +69,16 @@ public:
         return m_cpuParallel;
     }
 
+    std::vector<std::shared_ptr<ThreadPool>> getThreadPools() const {
+        return m_threadPools;
+    }
+
     std::shared_ptr<ThreadPool> getThreadPool() const {
-        return m_threadPool;
+        return m_threadPools[static_cast<int>(m_cpuParallel->get_partitioner())];
+    }
+
+    std::shared_ptr<ThreadPool> getThreadPool(size_t index) const {
+        return m_threadPools[index];
     }
 
     std::shared_ptr<SubMemoryManager> getSubMemory() const {
@@ -123,7 +131,7 @@ private:
     // cpu stream executor for current graph
     ov::threading::CPUStreamsExecutor::Ptr m_cpuStreamExecutor;
     std::shared_ptr<CpuParallel> m_cpuParallel;
-    std::shared_ptr<ThreadPool> m_threadPool;
+    std::vector<std::shared_ptr<ThreadPool>> m_threadPools;
     // numa submemory manager
     std::shared_ptr<SubMemoryManager> m_subMemoryManager;
 

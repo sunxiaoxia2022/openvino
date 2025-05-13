@@ -151,6 +151,10 @@ public:
         return m_context->getThreadPool();
     }
 
+    std::shared_ptr<ThreadPool> getThreadPool(int index) const {
+        return m_context->getThreadPool(index);
+    }
+
     std::vector<MemStatePtr> memoryStates() const;
     void assignStates(const std::vector<MemStatePtr>& state);
 
