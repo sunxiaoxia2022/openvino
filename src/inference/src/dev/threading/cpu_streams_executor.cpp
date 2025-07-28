@@ -110,9 +110,21 @@ struct CPUStreamsExecutor::Impl {
             _numaNodeId = numa_node_id;
             _socketId = socket_id;
             if (stream_type == STREAM_WITHOUT_PARAM) {
-                _taskArena.reset(new custom::task_arena{custom::task_arena::constraints{}
-                                                            .set_max_concurrency(concurrency)
-                                                            .set_max_threads_per_core(max_threads_per_core)});
+                auto core_types = tbb::info::core_types();  // size should be 3
+                std::cout << "core types size: " << core_types.size() << ", " << core_types[0] << "\n";
+                if (core_types.size() > 2) {
+                    std::cout << "core types : " << core_types[0] << ", " << core_types[1] << ", " << core_types[2]
+                              << "\n";
+                    _taskArena.reset(
+                        new custom::task_arena{custom::task_arena::constraints{}
+                                                   .set_max_concurrency(concurrency)
+                                                   .set_max_threads_per_core(max_threads_per_core)
+                                                   .set_core_types({core_types.end() - 2, core_types.end()})});
+                } else {
+                    _taskArena.reset(new custom::task_arena{custom::task_arena::constraints{}
+                                                                .set_max_concurrency(concurrency)
+                                                                .set_max_threads_per_core(max_threads_per_core)});
+                }
             } else if (stream_type == STREAM_WITH_NUMA_ID) {
                 // Numa node id has used different mapping methods in TBBBind since oneTBB 2021.4.0
 #    if USE_TBBBIND_2_5
@@ -129,6 +141,7 @@ struct CPUStreamsExecutor::Impl {
                     real_numa_node_id = _numaNodeId;
                 }
 #    endif
+                auto core_types = tbb::info::core_types();  // size should be 3
                 _taskArena.reset(new custom::task_arena{custom::task_arena::constraints{}
                                                             .set_numa_id(real_numa_node_id)
                                                             .set_max_concurrency(concurrency)

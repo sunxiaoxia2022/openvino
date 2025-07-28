@@ -11,6 +11,7 @@
 #pragma once
 
 #include "openvino/core/parallel.hpp"
+#include "openvino/runtime/common.hpp"
 
 #if (OV_THREAD == OV_THREAD_TBB || OV_THREAD == OV_THREAD_TBB_AUTO)
 
@@ -58,6 +59,22 @@ struct constraints {
         core_type = id;
         return *this;
     }
+    constraints& set_core_types(const std::vector<core_type_id>& ids) {
+        if (ids.empty()) {
+            core_type = -1;
+            return *this;
+        }
+
+        // Set a marker bit to indicate multiple core type format
+        core_type = (1 << core_type_id_bits);
+
+        for (core_type_id id : ids) {
+            OPENVINO_ASSERT((0 <= id) && (id < core_type_id_bits), "Wrong core type id");
+            core_type |= (1 << id);
+        }
+
+        return *this;
+    }
     constraints& set_max_threads_per_core(int threads_number) {
         max_threads_per_core = threads_number;
         return *this;
@@ -66,6 +83,8 @@ struct constraints {
     numa_node_id numa_id = tbb::task_arena::automatic;
     int max_concurrency = tbb::task_arena::automatic;
     core_type_id core_type = tbb::task_arena::automatic;
+    // Upper 4 bits reserved for format marker (single vs multiple core types)
+    static constexpr size_t core_type_id_bits = sizeof(core_type_id) * CHAR_BIT - 4;
     int max_threads_per_core = tbb::task_arena::automatic;
 };
 
