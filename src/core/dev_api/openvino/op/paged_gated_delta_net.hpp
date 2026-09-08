@@ -61,9 +61,30 @@ public:
                        float q_l2_norm_eps = 1e-6F,
                        float k_l2_norm_eps = 1e-6F);
 
+    /// \brief Constructs a PagedGatedDeltaNet operation with speculative tree metadata.
+    ///
+    /// \param qq_bias Flattened per-sequence query-to-query ancestor masks, element type u8.
+    /// \param qq_bias_begins Prefix offsets into qq_bias [batch_size_in_sequences+1], element type i32 or i64.
+    PagedGatedDeltaNet(const Output<Node>& query,
+                       const Output<Node>& key,
+                       const Output<Node>& value,
+                       const Output<Node>& recurrent_state_table,
+                       const Output<Node>& gate,
+                       const Output<Node>& beta,
+                       const Output<Node>& subsequence_begins,
+                       const Output<Node>& la_block_indices,
+                       const Output<Node>& la_block_indices_begins,
+                       const Output<Node>& processed_tokens,
+                       const Output<Node>& cache_interval,
+                       const Output<Node>& qq_bias,
+                       const Output<Node>& qq_bias_begins,
+                       bool use_qk_l2norm = false,
+                       float q_l2_norm_eps = 1e-6F,
+                       float k_l2_norm_eps = 1e-6F);
+
     /// \brief Constructs a PagedGatedDeltaNet operation from input vector.
     ///
-    /// \param args Input tensor vector (11 inputs in order listed above).
+    /// \param args Input tensor vector (11 inputs without tree metadata or 13 inputs with it).
     /// \param use_qk_l2norm Enables q/k L2-normalization inside this op.
     /// \param q_l2_norm_eps Positive floating-point epsilon used for query L2-normalization.
     /// \param k_l2_norm_eps Positive floating-point epsilon used for key L2-normalization.

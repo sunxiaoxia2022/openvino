@@ -32,6 +32,31 @@ PagedCausalConv1D::PagedCausalConv1D(const Output<Node>& input_embeds,
     constructor_validate_and_infer_types();
 }
 
+PagedCausalConv1D::PagedCausalConv1D(const Output<Node>& input_embeds,
+                                     const Output<Node>& conv_state_table,
+                                     const Output<Node>& conv_weight,
+                                     const Output<Node>& conv_bias,
+                                     const Output<Node>& subsequence_begins,
+                                     const Output<Node>& la_block_indices,
+                                     const Output<Node>& la_block_indices_begins,
+                                     const Output<Node>& processed_tokens,
+                                     const Output<Node>& cache_interval,
+                                     const Output<Node>& qq_bias,
+                                     const Output<Node>& qq_bias_begins)
+    : Op({input_embeds,
+          conv_state_table,
+          conv_weight,
+          conv_bias,
+          subsequence_begins,
+          la_block_indices,
+          la_block_indices_begins,
+          processed_tokens,
+          cache_interval,
+          qq_bias,
+          qq_bias_begins}) {
+    constructor_validate_and_infer_types();
+}
+
 PagedCausalConv1D::PagedCausalConv1D(const ov::OutputVector& args) : ov::op::Op(args) {
     constructor_validate_and_infer_types();
 }
@@ -39,7 +64,7 @@ PagedCausalConv1D::PagedCausalConv1D(const ov::OutputVector& args) : ov::op::Op(
 void PagedCausalConv1D::validate_and_infer_types() {
     OV_OP_SCOPE(PagedCausalConv1D_validate_and_infer_types);
 
-    NODE_VALIDATION_CHECK(this, get_input_size() == 9);
+    NODE_VALIDATION_CHECK(this, get_input_size() == 9 || get_input_size() == 11);
 
     // input_embeds (0), conv_weight (2), conv_bias (3) participate in the convolution MAC and
     // therefore must share a common float element type; it also determines the output precision.
@@ -67,6 +92,17 @@ void PagedCausalConv1D::validate_and_infer_types() {
         NODE_VALIDATION_CHECK(this,
                               et.is_dynamic() || et == ov::element::i32 || et == ov::element::i64,
                               "Integer inputs must have i32 or i64 element type.");
+    }
+    if (get_input_size() == 11) {
+        const auto& qq_bias_et = get_input_element_type(9);
+        NODE_VALIDATION_CHECK(this,
+                              qq_bias_et.is_dynamic() || qq_bias_et == ov::element::u8,
+                              "qq_bias input must have u8 element type.");
+        const auto& qq_bias_begins_et = get_input_element_type(10);
+        NODE_VALIDATION_CHECK(this,
+                              qq_bias_begins_et.is_dynamic() || qq_bias_begins_et == ov::element::i32 ||
+                                  qq_bias_begins_et == ov::element::i64,
+                              "qq_bias_begins input must have i32 or i64 element type.");
     }
 
     const auto output_shapes = shape_infer(this, ov::util::get_node_input_partial_shapes(*this));

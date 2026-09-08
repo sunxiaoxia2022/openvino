@@ -51,6 +51,8 @@ void run_reference(const std::vector<T>& query,
                    const std::vector<int32_t>& block_indices_begins,
                    const std::vector<int32_t>& past_lens,
                    const std::vector<int32_t>& cache_interval,
+                   const std::vector<uint8_t>& qq_bias,
+                   const std::vector<int32_t>& qq_bias_begins,
                    int32_t qk_heads,
                    int32_t v_heads,
                    int32_t qk_head_size,
@@ -79,6 +81,10 @@ void run_reference(const std::vector<T>& query,
         const int32_t past_len = past_lens[seq];
         const int32_t interval = cache_interval[seq];
         const int32_t prev_nums = (interval > 0) ? (past_len % interval) : 0;
+        const int32_t seq_tokens = token_end - token_begin;
+        const int32_t qq_begin = qq_bias_begins.empty() ? 0 : qq_bias_begins[seq];
+        const int32_t qq_end = qq_bias_begins.empty() ? 0 : qq_bias_begins[seq + 1];
+        const bool tree_mode = qq_end > qq_begin;
 
         for (int32_t h = 0; h < v_heads; h++) {
             const int32_t hk = h / group_size;
@@ -94,6 +100,23 @@ void run_reference(const std::vector<T>& query,
             }
 
             for (int32_t token = token_begin; token < token_end; token++) {
+                const int32_t node = token - token_begin;
+                if (tree_mode) {
+                    int32_t parent = -1;
+                    for (int32_t candidate = node - 1; candidate >= 0; --candidate) {
+                        if (qq_bias[qq_begin + node * seq_tokens + candidate] != 0) {
+                            parent = candidate;
+                            break;
+                        }
+                    }
+                    const int32_t source_block = block_indices[block_begin + (parent < 0 ? 0 : parent + 1)];
+                    for (int32_t k_idx = 0; k_idx < qk_head_size; k_idx++) {
+                        for (int32_t v_idx = 0; v_idx < v_head_size; v_idx++) {
+                            state[k_idx * v_head_size + v_idx] =
+                                static_cast<float>(recurrent_state_table[state_off(source_block, h, k_idx, v_idx)]);
+                        }
+                    }
+                }
                 const auto q_ptr = query.data() + (token * qk_heads + hk) * qk_head_size;
                 const auto k_ptr = key.data() + (token * qk_heads + hk) * qk_head_size;
 
@@ -126,18 +149,28 @@ void run_reference(const std::vector<T>& query,
                     output[(token * v_heads + h) * v_head_size + v_idx] = static_cast<T>(out_v);
                 }
 
-                const int32_t processed_tokens = (token - token_begin) + 1;
-                const int32_t cached_tokens = prev_nums + processed_tokens;
-                const bool reached_interval_boundary = (interval > 0) && ((cached_tokens % interval) == 0);
-                const bool reached_sequence_end = (token == token_end - 1);
-                if (reached_interval_boundary || reached_sequence_end) {
-                    const int32_t slot = interval > 0 ? (1 + (cached_tokens - 1) / interval) : 1;
-                    if (slot < seq_blocks) {
-                        const int32_t next_block_id = block_indices[block_begin + slot];
-                        for (int32_t k_idx = 0; k_idx < qk_head_size; k_idx++) {
-                            for (int32_t v_idx = 0; v_idx < v_head_size; v_idx++) {
-                                recurrent_state_table[state_off(next_block_id, h, k_idx, v_idx)] =
-                                    static_cast<T>(state[k_idx * v_head_size + v_idx]);
+                if (tree_mode) {
+                    const int32_t next_block_id = block_indices[block_begin + node + 1];
+                    for (int32_t k_idx = 0; k_idx < qk_head_size; k_idx++) {
+                        for (int32_t v_idx = 0; v_idx < v_head_size; v_idx++) {
+                            recurrent_state_table[state_off(next_block_id, h, k_idx, v_idx)] =
+                                static_cast<T>(state[k_idx * v_head_size + v_idx]);
+                        }
+                    }
+                } else {
+                    const int32_t processed_tokens = node + 1;
+                    const int32_t cached_tokens = prev_nums + processed_tokens;
+                    const bool reached_interval_boundary = (interval > 0) && ((cached_tokens % interval) == 0);
+                    const bool reached_sequence_end = (token == token_end - 1);
+                    if (reached_interval_boundary || reached_sequence_end) {
+                        const int32_t slot = interval > 0 ? (1 + (cached_tokens - 1) / interval) : 1;
+                        if (slot < seq_blocks) {
+                            const int32_t next_block_id = block_indices[block_begin + slot];
+                            for (int32_t k_idx = 0; k_idx < qk_head_size; k_idx++) {
+                                for (int32_t v_idx = 0; v_idx < v_head_size; v_idx++) {
+                                    recurrent_state_table[state_off(next_block_id, h, k_idx, v_idx)] =
+                                        static_cast<T>(state[k_idx * v_head_size + v_idx]);
+                                }
                             }
                         }
                     }
@@ -180,6 +213,10 @@ std::vector<ov::Tensor> calculate_typed_refs(const std::map<std::shared_ptr<ov::
     auto block_indices_begins = tensor_to_vector<int32_t>(host_inputs.at(params[8]));
     auto past_lens = tensor_to_vector<int32_t>(host_inputs.at(params[9]));
     auto cache_interval = tensor_to_vector<int32_t>(host_inputs.at(params[10]));
+    const auto qq_bias = params.size() == 13 ? tensor_to_vector<uint8_t>(host_inputs.at(params[11]))
+                                             : std::vector<uint8_t>{};
+    const auto qq_bias_begins = params.size() == 13 ? tensor_to_vector<int32_t>(host_inputs.at(params[12]))
+                                                    : std::vector<int32_t>{};
 
     std::vector<T> ref_output;
     run_reference(query,
@@ -193,6 +230,8 @@ std::vector<ov::Tensor> calculate_typed_refs(const std::map<std::shared_ptr<ov::
                   block_indices_begins,
                   past_lens,
                   cache_interval,
+                  qq_bias,
+                  qq_bias_begins,
                   qk_heads,
                   v_heads,
                   qk_head_size,
@@ -221,7 +260,8 @@ std::string PagedGatedDeltaNetLayerTest::getTestCaseName(
                  seq_lengths,
                  cache_intervals,
                  element_type,
-                 target_device] = obj.param;
+                 target_device,
+                 tree_mode] = obj.param;
     std::ostringstream result;
     result << "QKHeads=" << qk_heads;
     result << "_VHeads=" << v_heads;
@@ -241,12 +281,20 @@ std::string PagedGatedDeltaNetLayerTest::getTestCaseName(
     }
     result << "_Type=" << element_type;
     result << "_Target=" << target_device;
+    result << "_Tree=" << (tree_mode ? "yes" : "no");
     return result.str();
 }
 
 void PagedGatedDeltaNetLayerTest::SetUp() {
-    const auto& [qk_heads, v_heads, qk_head_size, v_head_size, seq_lengths, cache_intervals, data_type, device] =
-        GetParam();
+    const auto& [qk_heads,
+                 v_heads,
+                 qk_head_size,
+                 v_head_size,
+                 seq_lengths,
+                 cache_intervals,
+                 data_type,
+                 device,
+                 tree_mode] = GetParam();
     if (device.find("CPU") != std::string::npos) {
         // Skip BF16/F16 tests if not support
         if ((data_type == ov::element::bf16) && !with_cpu_x86_avx512_core_amx_bf16()) {
@@ -269,6 +317,10 @@ void PagedGatedDeltaNetLayerTest::SetUp() {
     int32_t num_blocks = 0;
     for (size_t i = 0; i < seq_lengths.size(); i++) {
         OPENVINO_ASSERT(cache_intervals[i] >= 0);
+        if (tree_mode) {
+            num_blocks += seq_lengths[i] + 1;
+            continue;
+        }
         const int32_t past_len = 1 + static_cast<int32_t>(i % 3);
         if (cache_intervals[i] == 0) {
             // interval == 0: use exactly 2 blocks per sequence
@@ -293,17 +345,25 @@ void PagedGatedDeltaNetLayerTest::SetUp() {
                                 static_cast<size_t>(qk_head_size)};
     const ov::Shape gv_shape{static_cast<size_t>(tokens), static_cast<size_t>(v_heads)};
 
-    init_input_shapes(static_shapes_to_test_representation({q_shape,
-                                                            q_shape,
-                                                            v_shape,
-                                                            state_shape,
-                                                            gv_shape,
-                                                            gv_shape,
-                                                            ov::Shape{static_cast<size_t>(num_sequences + 1)},
-                                                            ov::Shape{static_cast<size_t>(num_blocks)},
-                                                            ov::Shape{static_cast<size_t>(num_sequences + 1)},
-                                                            ov::Shape{static_cast<size_t>(num_sequences)},
-                                                            ov::Shape{static_cast<size_t>(num_sequences)}}));
+    std::vector<ov::Shape> input_shapes{q_shape,
+                                        q_shape,
+                                        v_shape,
+                                        state_shape,
+                                        gv_shape,
+                                        gv_shape,
+                                        ov::Shape{static_cast<size_t>(num_sequences + 1)},
+                                        ov::Shape{static_cast<size_t>(num_blocks)},
+                                        ov::Shape{static_cast<size_t>(num_sequences + 1)},
+                                        ov::Shape{static_cast<size_t>(num_sequences)},
+                                        ov::Shape{static_cast<size_t>(num_sequences)}};
+    if (tree_mode) {
+        size_t qq_bias_size = 0;
+        for (const auto seq_len : seq_lengths)
+            qq_bias_size += static_cast<size_t>(seq_len) * seq_len;
+        input_shapes.push_back({qq_bias_size});
+        input_shapes.push_back({static_cast<size_t>(num_sequences + 1)});
+    }
+    init_input_shapes(static_shapes_to_test_representation(input_shapes));
 
     auto p_query = std::make_shared<ov::op::v0::Parameter>(data_type, ov::PartialShape{-1, qk_heads, qk_head_size});
     auto p_key = std::make_shared<ov::op::v0::Parameter>(data_type, ov::PartialShape{-1, qk_heads, qk_head_size});
@@ -317,41 +377,73 @@ void PagedGatedDeltaNetLayerTest::SetUp() {
     auto p_block_begins = std::make_shared<ov::op::v0::Parameter>(ov::element::i32, ov::PartialShape{-1});
     auto p_past_lens = std::make_shared<ov::op::v0::Parameter>(ov::element::i32, ov::PartialShape{-1});
     auto p_cache_interval = std::make_shared<ov::op::v0::Parameter>(ov::element::i32, ov::PartialShape{-1});
-    auto pgdn = std::make_shared<ov::op::internal::PagedGatedDeltaNet>(p_query,
-                                                                       p_key,
-                                                                       p_value,
-                                                                       p_state,
-                                                                       p_gate,
-                                                                       p_beta,
-                                                                       p_subseq,
-                                                                       p_blocks,
-                                                                       p_block_begins,
-                                                                       p_past_lens,
-                                                                       p_cache_interval,
-                                                                       true,
-                                                                       1e-6f,
-                                                                       1e-6f);
+    ov::ParameterVector parameters{p_query,
+                                   p_key,
+                                   p_value,
+                                   p_state,
+                                   p_gate,
+                                   p_beta,
+                                   p_subseq,
+                                   p_blocks,
+                                   p_block_begins,
+                                   p_past_lens,
+                                   p_cache_interval};
+    std::shared_ptr<ov::op::internal::PagedGatedDeltaNet> pgdn;
+    if (tree_mode) {
+        auto p_qq_bias = std::make_shared<ov::op::v0::Parameter>(ov::element::u8, ov::PartialShape{-1});
+        auto p_qq_bias_begins = std::make_shared<ov::op::v0::Parameter>(ov::element::i32, ov::PartialShape{-1});
+        parameters.push_back(p_qq_bias);
+        parameters.push_back(p_qq_bias_begins);
+        pgdn = std::make_shared<ov::op::internal::PagedGatedDeltaNet>(p_query,
+                                                                      p_key,
+                                                                      p_value,
+                                                                      p_state,
+                                                                      p_gate,
+                                                                      p_beta,
+                                                                      p_subseq,
+                                                                      p_blocks,
+                                                                      p_block_begins,
+                                                                      p_past_lens,
+                                                                      p_cache_interval,
+                                                                      p_qq_bias,
+                                                                      p_qq_bias_begins,
+                                                                      true,
+                                                                      1e-6f,
+                                                                      1e-6f);
+    } else {
+        pgdn = std::make_shared<ov::op::internal::PagedGatedDeltaNet>(p_query,
+                                                                      p_key,
+                                                                      p_value,
+                                                                      p_state,
+                                                                      p_gate,
+                                                                      p_beta,
+                                                                      p_subseq,
+                                                                      p_blocks,
+                                                                      p_block_begins,
+                                                                      p_past_lens,
+                                                                      p_cache_interval,
+                                                                      true,
+                                                                      1e-6f,
+                                                                      1e-6f);
+    }
 
     function = std::make_shared<ov::Model>(ov::ResultVector{std::make_shared<ov::op::v0::Result>(pgdn)},
-                                           ov::ParameterVector{p_query,
-                                                               p_key,
-                                                               p_value,
-                                                               p_state,
-                                                               p_gate,
-                                                               p_beta,
-                                                               p_subseq,
-                                                               p_blocks,
-                                                               p_block_begins,
-                                                               p_past_lens,
-                                                               p_cache_interval});
+                                           parameters);
 }
 
 void PagedGatedDeltaNetLayerTest::generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) {
     inputs.clear();
     host_inputs.clear();
 
-    const auto& [qk_heads, v_heads, qk_head_size, v_head_size, seq_lengths, cache_intervals, element_type, device] =
-        GetParam();
+    const auto& [qk_heads,
+                 v_heads,
+                 qk_head_size,
+                 v_head_size,
+                 seq_lengths,
+                 cache_intervals,
+                 element_type,
+                 device,
+                 tree_mode] = GetParam();
     const auto num_sequences = static_cast<int32_t>(seq_lengths.size());
 
     std::vector<int32_t> subsequence_begins;
@@ -359,6 +451,8 @@ void PagedGatedDeltaNetLayerTest::generate_inputs(const std::vector<ov::Shape>& 
     std::vector<int32_t> block_indices_begins;
     std::vector<int32_t> past_lens;
     std::vector<int32_t> cache_interval;
+    std::vector<uint8_t> qq_bias;
+    std::vector<int32_t> qq_bias_begins{0};
 
     subsequence_begins.reserve(static_cast<size_t>(num_sequences + 1));
     block_indices_begins.reserve(static_cast<size_t>(num_sequences + 1));
@@ -378,8 +472,8 @@ void PagedGatedDeltaNetLayerTest::generate_inputs(const std::vector<ov::Shape>& 
         past_lens.push_back(seq_past_len);
         cache_interval.push_back(seq_interval);
 
-        int32_t required_slots = 2;
-        if (seq_interval > 0) {
+        int32_t required_slots = tree_mode ? seq_len + 1 : 2;
+        if (!tree_mode && seq_interval > 0) {
             const int32_t prev_nums = seq_past_len % seq_interval;
             const int32_t write_blocks = (prev_nums + seq_len + seq_interval - 1) / seq_interval;
             required_slots = 1 + write_blocks;
@@ -389,6 +483,20 @@ void PagedGatedDeltaNetLayerTest::generate_inputs(const std::vector<ov::Shape>& 
         }
         total_blocks += required_slots;
         block_indices_begins.push_back(total_blocks);
+
+        if (tree_mode) {
+            for (int32_t row = 0; row < seq_len; row++) {
+                for (int32_t col = 0; col < seq_len; col++) {
+                    bool visible = row == col;
+                    for (int32_t ancestor = row; !visible && ancestor > 0;) {
+                        ancestor = (ancestor - 1) / 2;
+                        visible = ancestor == col;
+                    }
+                    qq_bias.push_back(visible ? 1 : 0);
+                }
+            }
+        }
+        qq_bias_begins.push_back(static_cast<int32_t>(qq_bias.size()));
     }
 
     const auto& params = function->get_parameters();
@@ -425,6 +533,11 @@ void PagedGatedDeltaNetLayerTest::generate_inputs(const std::vector<ov::Shape>& 
             tensor = make_i32_tensor(past_lens);
         } else if (i == 10) {
             tensor = make_i32_tensor(cache_interval);
+        } else if (i == 11) {
+            tensor = ov::Tensor(ov::element::u8, ov::Shape{qq_bias.size()});
+            std::copy(qq_bias.begin(), qq_bias.end(), tensor.data<uint8_t>());
+        } else if (i == 12) {
+            tensor = make_i32_tensor(qq_bias_begins);
         }
 
         host_inputs[param] = tensor;
@@ -442,8 +555,15 @@ void PagedGatedDeltaNetLayerTest::generate_inputs(const std::vector<ov::Shape>& 
 }
 
 std::vector<ov::Tensor> PagedGatedDeltaNetLayerTest::calculate_refs() {
-    const auto& [qk_heads, v_heads, qk_head_size, v_head_size, seq_lengths, cache_intervals, element_type, device] =
-        GetParam();
+    const auto& [qk_heads,
+                 v_heads,
+                 qk_head_size,
+                 v_head_size,
+                 seq_lengths,
+                 cache_intervals,
+                 element_type,
+                 device,
+                 tree_mode] = GetParam();
 
     if (element_type == ov::element::f16) {
         return calculate_typed_refs<ov::float16>(host_inputs,

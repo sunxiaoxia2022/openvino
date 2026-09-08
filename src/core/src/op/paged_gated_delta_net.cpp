@@ -42,6 +42,41 @@ PagedGatedDeltaNet::PagedGatedDeltaNet(const Output<Node>& query,
     constructor_validate_and_infer_types();
 }
 
+PagedGatedDeltaNet::PagedGatedDeltaNet(const Output<Node>& query,
+                                       const Output<Node>& key,
+                                       const Output<Node>& value,
+                                       const Output<Node>& recurrent_state_table,
+                                       const Output<Node>& gate,
+                                       const Output<Node>& beta,
+                                       const Output<Node>& subsequence_begins,
+                                       const Output<Node>& la_block_indices,
+                                       const Output<Node>& la_block_indices_begins,
+                                       const Output<Node>& processed_tokens,
+                                       const Output<Node>& cache_interval,
+                                       const Output<Node>& qq_bias,
+                                       const Output<Node>& qq_bias_begins,
+                                       bool use_qk_l2norm,
+                                       float q_l2_norm_eps,
+                                       float k_l2_norm_eps)
+    : Op({query,
+          key,
+          value,
+          recurrent_state_table,
+          gate,
+          beta,
+          subsequence_begins,
+          la_block_indices,
+          la_block_indices_begins,
+          processed_tokens,
+          cache_interval,
+          qq_bias,
+          qq_bias_begins}),
+      m_use_qk_l2norm(use_qk_l2norm),
+      m_q_l2_norm_eps(q_l2_norm_eps),
+      m_k_l2_norm_eps(k_l2_norm_eps) {
+    constructor_validate_and_infer_types();
+}
+
 PagedGatedDeltaNet::PagedGatedDeltaNet(const ov::OutputVector& args,
                                        bool use_qk_l2norm,
                                        float q_l2_norm_eps,
@@ -56,7 +91,7 @@ PagedGatedDeltaNet::PagedGatedDeltaNet(const ov::OutputVector& args,
 void PagedGatedDeltaNet::validate_and_infer_types() {
     OV_OP_SCOPE(PagedGatedDeltaNet_validate_and_infer_types);
 
-    NODE_VALIDATION_CHECK(this, get_input_size() == 11);
+    NODE_VALIDATION_CHECK(this, get_input_size() == 11 || get_input_size() == 13);
 
     // query (0), key (1), value (2), gate (4), and beta (5) participate in the main arithmetic
     // and therefore must share a common float element type; it also determines the output precision.
@@ -86,6 +121,17 @@ void PagedGatedDeltaNet::validate_and_infer_types() {
         NODE_VALIDATION_CHECK(this,
                               et.is_dynamic() || et == ov::element::i32 || et == ov::element::i64,
                               "Integer inputs must have i32 or i64 element type.");
+    }
+    if (get_input_size() == 13) {
+        const auto& qq_bias_et = get_input_element_type(11);
+        NODE_VALIDATION_CHECK(this,
+                              qq_bias_et.is_dynamic() || qq_bias_et == ov::element::u8,
+                              "qq_bias input must have u8 element type.");
+        const auto& qq_bias_begins_et = get_input_element_type(12);
+        NODE_VALIDATION_CHECK(this,
+                              qq_bias_begins_et.is_dynamic() || qq_bias_begins_et == ov::element::i32 ||
+                                  qq_bias_begins_et == ov::element::i64,
+                              "qq_bias_begins input must have i32 or i64 element type.");
     }
 
     NODE_VALIDATION_CHECK(this,

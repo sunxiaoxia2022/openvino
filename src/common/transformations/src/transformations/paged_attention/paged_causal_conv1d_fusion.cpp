@@ -167,16 +167,32 @@ PagedCausalConv1DFusion::PagedCausalConv1DFusion(ov::pass::paged_attention::PaPa
             bias_node = v0::Constant::create(elem_type, ov::Shape{0}, std::vector<float>{});
         }
 
-        const auto paged_conv =
-            std::make_shared<ov::op::internal::PagedCausalConv1D>(input_embeds_node,
-                                                                  conv_state_table,
-                                                                  weight_reshaped,
-                                                                  bias_node,
-                                                                  pa_params["subsequence_begins"],
-                                                                  pa_params["la.block_indices"],
-                                                                  pa_params["la.block_indices_begins"],
-                                                                  pa_params["la.past_lens"],
-                                                                  pa_params["la.cache_interval"]);
+        std::shared_ptr<ov::op::internal::PagedCausalConv1D> paged_conv;
+        const auto qq_bias = pa_params.find("qq_bias");
+        const auto qq_bias_begins = pa_params.find("qq_bias_begins");
+        if (qq_bias && qq_bias_begins) {
+            paged_conv = std::make_shared<ov::op::internal::PagedCausalConv1D>(input_embeds_node,
+                                                                               conv_state_table,
+                                                                               weight_reshaped,
+                                                                               bias_node,
+                                                                               pa_params["subsequence_begins"],
+                                                                               pa_params["la.block_indices"],
+                                                                               pa_params["la.block_indices_begins"],
+                                                                               pa_params["la.past_lens"],
+                                                                               pa_params["la.cache_interval"],
+                                                                               qq_bias,
+                                                                               qq_bias_begins);
+        } else {
+            paged_conv = std::make_shared<ov::op::internal::PagedCausalConv1D>(input_embeds_node,
+                                                                               conv_state_table,
+                                                                               weight_reshaped,
+                                                                               bias_node,
+                                                                               pa_params["subsequence_begins"],
+                                                                               pa_params["la.block_indices"],
+                                                                               pa_params["la.block_indices_begins"],
+                                                                               pa_params["la.past_lens"],
+                                                                               pa_params["la.cache_interval"]);
+        }
 
         paged_conv->set_friendly_name(group_conv_node->get_friendly_name() + "/PagedCausalConv1D");
 

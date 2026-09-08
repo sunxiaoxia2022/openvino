@@ -392,7 +392,39 @@ TEST_F(TypePropPagedGatedDeltaNetTest, incompatible_inputs_count) {
     const auto p = std::make_shared<op::v0::Parameter>(element::f32, Shape{10, 4, 8});
     OV_EXPECT_THROW(std::ignore = make_op(OutputVector{p, p, p}),
                     NodeValidationFailure,
-                    testing::HasSubstr("get_input_size() == 11"));
+                    testing::HasSubstr("get_input_size() == 11 || get_input_size() == 13"));
+}
+
+TEST_F(TypePropPagedGatedDeltaNetTest, tree_mask_inputs) {
+    const auto query = std::make_shared<op::v0::Parameter>(element::f32, Shape{3, 2, 8});
+    const auto key = std::make_shared<op::v0::Parameter>(element::f32, Shape{3, 2, 8});
+    const auto value = std::make_shared<op::v0::Parameter>(element::f32, Shape{3, 4, 16});
+    const auto state = std::make_shared<op::v0::Parameter>(element::f32, Shape{4, 4, 16, 8});
+    const auto gate = std::make_shared<op::v0::Parameter>(element::f32, Shape{3, 4});
+    const auto beta = std::make_shared<op::v0::Parameter>(element::f32, Shape{3, 4});
+    const auto subsequence_begins = std::make_shared<op::v0::Parameter>(element::i32, Shape{2});
+    const auto la_block_indices = std::make_shared<op::v0::Parameter>(element::i32, Shape{4});
+    const auto la_block_indices_begins = std::make_shared<op::v0::Parameter>(element::i32, Shape{2});
+    const auto processed_tokens = std::make_shared<op::v0::Parameter>(element::i32, Shape{1});
+    const auto cache_interval = std::make_shared<op::v0::Parameter>(element::i32, Shape{1});
+    const auto qq_bias = std::make_shared<op::v0::Parameter>(element::u8, Shape{9});
+    const auto qq_bias_begins = std::make_shared<op::v0::Parameter>(element::i32, Shape{2});
+
+    const auto op = make_op(OutputVector{query,
+                                         key,
+                                         value,
+                                         state,
+                                         gate,
+                                         beta,
+                                         subsequence_begins,
+                                         la_block_indices,
+                                         la_block_indices_begins,
+                                         processed_tokens,
+                                         cache_interval,
+                                         qq_bias,
+                                         qq_bias_begins});
+
+    EXPECT_EQ(op->get_output_partial_shape(0), PartialShape(Shape{3, 4, 16}));
 }
 
 TEST_F(TypePropPagedGatedDeltaNetTest, dynamic_rank) {

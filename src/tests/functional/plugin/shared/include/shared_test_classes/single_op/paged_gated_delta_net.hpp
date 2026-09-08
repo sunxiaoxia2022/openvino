@@ -15,16 +15,17 @@
 
 namespace ov::test {
 
-using PagedGatedDeltaNetLayerParams = std::tuple<int32_t,
-                                                 int32_t,
-                                                 int32_t,
-                                                 int32_t,
-                                                 std::vector<int32_t>,
-                                                 std::vector<int32_t>,
-                                                 ov::element::Type,
-                                                 std::string>;  // qk_heads, v_heads, qk_head_size, v_head_size,
-                                                                // seq_lengths, cache_intervals, element_type,
-                                                                // target_device
+struct PagedGatedDeltaNetLayerParams {
+    int32_t qk_heads;
+    int32_t v_heads;
+    int32_t qk_head_size;
+    int32_t v_head_size;
+    std::vector<int32_t> seq_lengths;
+    std::vector<int32_t> cache_intervals;
+    ov::element::Type element_type;
+    std::string target_device;
+    bool tree_mode = false;
+};
 
 class PagedGatedDeltaNetLayerTest : public testing::WithParamInterface<PagedGatedDeltaNetLayerParams>,
                                     virtual public ov::test::SubgraphBaseTest {

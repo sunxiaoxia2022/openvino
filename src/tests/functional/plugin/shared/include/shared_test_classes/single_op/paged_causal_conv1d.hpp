@@ -24,6 +24,7 @@ struct PagedCausalConv1DLayerParams {
     std::vector<std::vector<int32_t>> cache_intervals_sets;
     ov::element::Type element_type;
     std::string target_device;
+    bool tree_mode = false;
 };
 
 class PagedCausalConv1DLayerTest : public testing::WithParamInterface<PagedCausalConv1DLayerParams>,
@@ -45,6 +46,8 @@ private:
         std::vector<int32_t> block_indices_begins;
         std::vector<int32_t> past_lens;
         std::vector<int32_t> cache_interval;
+        std::vector<uint8_t> qq_bias;
+        std::vector<int32_t> qq_bias_begins;
     };
 
     std::map<std::shared_ptr<ov::Node>, ov::Tensor> host_inputs;

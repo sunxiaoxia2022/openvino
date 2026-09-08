@@ -9,6 +9,7 @@
 
 #include "openvino/core/except.hpp"
 #include "openvino/core/type/element_type.hpp"
+#include "nodes/kernels/paged_recurrent_tree_utils.hpp"
 #include "utils/general_utils.h"
 #include "utils/plain_tensor.hpp"
 
@@ -229,6 +230,8 @@ static void recurrent_linear_attn_paged_impl(const ov::intel_cpu::PlainTensor& q
                                              const ov::intel_cpu::PlainTensor& block_indices_begins,
                                              const ov::intel_cpu::PlainTensor& past_lens,
                                              const ov::intel_cpu::PlainTensor& cache_interval,
+                                             const ov::intel_cpu::PlainTensor* qq_bias,
+                                             const ov::intel_cpu::PlainTensor* qq_bias_begins,
                                              float q_l2_norm_eps,
                                              float k_l2_norm_eps,
                                              bool use_qk_l2norm,
@@ -271,6 +274,29 @@ static void recurrent_linear_attn_paged_impl(const ov::intel_cpu::PlainTensor& q
         const int32_t prev_nums = (seq_interval > 0) ? (seq_past_len % seq_interval) : 0;
         OPENVINO_ASSERT(seq_blocks > 0, "[CPU] paged_gdn: each sequence must have at least one cache block");
 
+        const int32_t seq_tokens = token_end - token_begin;
+        const auto* qq_bias_data = qq_bias != nullptr && qq_bias->m_dims[0] > 0
+                                       ? qq_bias->ptr<const uint8_t>()
+                                       : nullptr;
+        const auto* qq_bias_begins_data =
+            qq_bias_begins != nullptr && qq_bias_begins->m_dims[0] > 0
+                ? qq_bias_begins->ptr<const int32_t>()
+                : nullptr;
+        const size_t qq_bias_size = qq_bias_data != nullptr ? qq_bias->m_dims[0] : 0;
+        const size_t qq_bias_begins_size =
+            qq_bias_begins_data != nullptr ? qq_bias_begins->m_dims[0] : 0;
+        const auto tree = recurrent_tree::get_tree_mask(qq_bias_data,
+                                                        qq_bias_begins_data,
+                                                        qq_bias_size,
+                                                        qq_bias_begins_size,
+                                                        seq,
+                                                        seq_tokens,
+                                                        "PagedGatedDeltaNet");
+        if (tree) {
+            OPENVINO_ASSERT(seq_blocks >= seq_tokens + 1,
+                            "[CPU] paged_gdn: tree mode requires one input block and one output block per node");
+        }
+
         const int32_t block_id = block_indices.at<int32_t>({static_cast<size_t>(block_begin)});
         auto* initial_state_src = recurrent_state_table.ptr<T>(static_cast<size_t>(block_id), i_h, i_v);
         cvt_copy(init_state, initial_state_src, 1, k_head_dims, 0, 0);
@@ -278,6 +304,15 @@ static void recurrent_linear_attn_paged_impl(const ov::intel_cpu::PlainTensor& q
         const size_t hk = i_h / group_size;
 
         for (int32_t token = token_begin; token < token_end; token++) {
+            const int32_t node = token - token_begin;
+            if (tree) {
+                const int32_t parent = recurrent_tree::get_parent(tree, node, "PagedGatedDeltaNet");
+                const int32_t source_slot = parent < 0 ? 0 : parent + 1;
+                const int32_t source_block =
+                    block_indices.at<int32_t>({static_cast<size_t>(block_begin + source_slot)});
+                auto* parent_state = recurrent_state_table.ptr<T>(static_cast<size_t>(source_block), i_h, i_v);
+                cvt_copy(init_state, parent_state, 1, k_head_dims, 0, 0);
+            }
             const auto token_u = static_cast<size_t>(token);
             for (size_t j = 0; j < k_head_dims; j++) {
                 b_k[j] = static_cast<float>(key.at<T>({token_u, hk, j}));
@@ -308,17 +343,27 @@ static void recurrent_linear_attn_paged_impl(const ov::intel_cpu::PlainTensor& q
             const float b_output = dot_product(init_state, b_q, k_head_dims, nullptr, nullptr, nullptr, 0);
             output_attn.at<T>({token_u, i_h, i_v}) = static_cast<T>(b_output);
 
-            const int32_t processed_tokens = (token - token_begin) + 1;
-            const int32_t cached_tokens = prev_nums + processed_tokens;
-            const bool interval_hit = (seq_interval > 0) && ((cached_tokens % seq_interval) == 0);
-            const bool is_last_token = (token == token_end - 1);
-            const bool should_store = interval_hit || is_last_token;
-            if (should_store) {
-                const int32_t slot = (seq_interval > 0) ? (1 + (cached_tokens - 1) / seq_interval) : 1;
-                if (slot < seq_blocks) {
-                    const int32_t block_id = block_indices.at<int32_t>({static_cast<size_t>(block_begin + slot)});
-                    auto* updated_state_dst = recurrent_state_table.ptr<T>(static_cast<size_t>(block_id), i_h, i_v);
-                    cvt_copy(updated_state_dst, init_state, 1, k_head_dims, 0, 0);
+            if (tree) {
+                const int32_t output_block =
+                    block_indices.at<int32_t>({static_cast<size_t>(block_begin + node + 1)});
+                auto* updated_state_dst =
+                    recurrent_state_table.ptr<T>(static_cast<size_t>(output_block), i_h, i_v);
+                cvt_copy(updated_state_dst, init_state, 1, k_head_dims, 0, 0);
+            } else {
+                const int32_t processed_tokens = node + 1;
+                const int32_t cached_tokens = prev_nums + processed_tokens;
+                const bool interval_hit = (seq_interval > 0) && ((cached_tokens % seq_interval) == 0);
+                const bool is_last_token = (token == token_end - 1);
+                const bool should_store = interval_hit || is_last_token;
+                if (should_store) {
+                    const int32_t slot = (seq_interval > 0) ? (1 + (cached_tokens - 1) / seq_interval) : 1;
+                    if (slot < seq_blocks) {
+                        const int32_t block_id =
+                            block_indices.at<int32_t>({static_cast<size_t>(block_begin + slot)});
+                        auto* updated_state_dst =
+                            recurrent_state_table.ptr<T>(static_cast<size_t>(block_id), i_h, i_v);
+                        cvt_copy(updated_state_dst, init_state, 1, k_head_dims, 0, 0);
+                    }
                 }
             }
         }
@@ -336,6 +381,8 @@ void recurrent_linear_attn_paged(const ov::intel_cpu::PlainTensor& query,
                                  const ov::intel_cpu::PlainTensor& block_indices_begins,
                                  const ov::intel_cpu::PlainTensor& past_lens,
                                  const ov::intel_cpu::PlainTensor& cache_interval,
+                                 const ov::intel_cpu::PlainTensor* qq_bias,
+                                 const ov::intel_cpu::PlainTensor* qq_bias_begins,
                                  float q_l2_norm_eps,
                                  float k_l2_norm_eps,
                                  bool use_qk_l2norm,
@@ -361,6 +408,8 @@ void recurrent_linear_attn_paged(const ov::intel_cpu::PlainTensor& query,
                                                 block_indices_begins,
                                                 past_lens,
                                                 cache_interval,
+                                                qq_bias,
+                                                qq_bias_begins,
                                                 q_l2_norm_eps,
                                                 k_l2_norm_eps,
                                                 use_qk_l2norm,
@@ -379,6 +428,8 @@ void recurrent_linear_attn_paged(const ov::intel_cpu::PlainTensor& query,
                                                       block_indices_begins,
                                                       past_lens,
                                                       cache_interval,
+                                                      qq_bias,
+                                                      qq_bias_begins,
                                                       q_l2_norm_eps,
                                                       k_l2_norm_eps,
                                                       use_qk_l2norm,
@@ -397,6 +448,8 @@ void recurrent_linear_attn_paged(const ov::intel_cpu::PlainTensor& query,
                                                        block_indices_begins,
                                                        past_lens,
                                                        cache_interval,
+                                                       qq_bias,
+                                                       qq_bias_begins,
                                                        q_l2_norm_eps,
                                                        k_l2_norm_eps,
                                                        use_qk_l2norm,

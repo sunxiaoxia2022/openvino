@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <memory>
 #include <oneapi/dnnl/dnnl_common.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -91,6 +92,12 @@ void PagedGatedDeltaNet::execute([[maybe_unused]] const dnnl::stream& strm) {
     PlainTensor block_indices_begins(inputs[8]);
     PlainTensor past_lens(inputs[9]);
     PlainTensor cache_interval(inputs[10]);
+    std::optional<PlainTensor> qq_bias;
+    std::optional<PlainTensor> qq_bias_begins;
+    if (originalInputNumber == 13) {
+        qq_bias.emplace(inputs[11]);
+        qq_bias_begins.emplace(inputs[12]);
+    }
     PlainTensor output_attn(output);
 
     auto* temp_buffer = m_tmpInpBuffer->getDataAs<float>();
@@ -106,6 +113,8 @@ void PagedGatedDeltaNet::execute([[maybe_unused]] const dnnl::stream& strm) {
                                 block_indices_begins,
                                 past_lens,
                                 cache_interval,
+                                qq_bias ? &*qq_bias : nullptr,
+                                qq_bias_begins ? &*qq_bias_begins : nullptr,
                                 m_q_l2_norm_eps,
                                 m_k_l2_norm_eps,
                                 m_use_qk_l2norm,

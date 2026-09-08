@@ -15,6 +15,7 @@
 #include "openvino/core/type/bfloat16.hpp"
 #include "openvino/core/type/element_type.hpp"
 #include "openvino/core/type/float16.hpp"
+#include "paged_recurrent_tree_utils.hpp"
 #include "scaled_attn/common.hpp"
 
 #if defined(HAVE_AVX2)
@@ -102,6 +103,10 @@ void paged_causal_conv1d_ref(const DataT* input_embeds,
                              const int32_t* block_indices_begins,
                              const int32_t* past_lens,
                              const int32_t* cache_interval,
+                             const uint8_t* qq_bias,
+                             const int32_t* qq_bias_begins,
+                             const size_t qq_bias_size,
+                             const size_t qq_bias_begins_size,
                              DataT* output_embeds,
                              const size_t batch_size_in_tokens,
                              const size_t hidden_size,
@@ -150,6 +155,22 @@ void paged_causal_conv1d_ref(const DataT* input_embeds,
         const int32_t seq_interval = cache_interval[s];
         const int32_t prev_nums = (seq_interval > 0) ? (past_lens[s] % seq_interval) : 0;
         const int32_t seq_tokens = token_end - token_begin;
+        const auto tree = recurrent_tree::get_tree_mask(qq_bias,
+                                qq_bias_begins,
+                                qq_bias_size,
+                                qq_bias_begins_size,
+                                s,
+                                seq_tokens,
+                                "PagedCausalConv1D");
+        if (tree) {
+            OPENVINO_ASSERT(block_span >= seq_tokens + 1,
+                            "PagedCausalConv1D tree mode requires one input block and one output block per node. Got ",
+                            block_span,
+                            " blocks for ",
+                            seq_tokens,
+                            " nodes at sequence ",
+                            s);
+        }
 
         const size_t h_begin = blk * kChannelBlock;
         const size_t h_end = std::min(h_begin + kChannelBlock, hidden_size);
@@ -172,6 +193,17 @@ void paged_causal_conv1d_ref(const DataT* input_embeds,
                  /*dst_stride=*/h_count * kernel_size);
 
         for (int32_t t = 0; t < seq_tokens; t++) {
+            if (tree) {
+                const int32_t parent = recurrent_tree::get_parent(tree, t, "PagedCausalConv1D");
+                const int32_t source_slot = parent < 0 ? 0 : parent + 1;
+                const int32_t source_block = block_indices[blk_begin + source_slot];
+                cvt_copy(thread_local_state + state_off,
+                         conv_state_table + static_cast<size_t>(source_block) * state_stride + state_off,
+                         size_t{1},
+                         h_count * kernel_size,
+                         h_count * kernel_size,
+                         h_count * kernel_size);
+            }
             const size_t token_idx = static_cast<size_t>(token_begin) + static_cast<size_t>(t);
             const auto* token_ptr = input_embeds + token_idx * hidden_size;
             auto* out_ptr = output_embeds + token_idx * hidden_size;
@@ -186,19 +218,29 @@ void paged_causal_conv1d_ref(const DataT* input_embeds,
                           h_end,
                           kernel_size);
 
-            maybe_flush_state(conv_state_table,
-                              thread_local_state,
-                              block_indices,
-                              blk_begin,
-                              block_span,
-                              prev_nums,
-                              seq_interval,
-                              t,
-                              seq_tokens,
-                              state_stride,
-                              state_off,
-                              h_count,
-                              kernel_size);
+            if (tree) {
+                const int32_t output_block = block_indices[blk_begin + t + 1];
+                cvt_copy(conv_state_table + static_cast<size_t>(output_block) * state_stride + state_off,
+                         thread_local_state + state_off,
+                         size_t{1},
+                         h_count * kernel_size,
+                         h_count * kernel_size,
+                         h_count * kernel_size);
+            } else {
+                maybe_flush_state(conv_state_table,
+                                  thread_local_state,
+                                  block_indices,
+                                  blk_begin,
+                                  block_span,
+                                  prev_nums,
+                                  seq_interval,
+                                  t,
+                                  seq_tokens,
+                                  state_stride,
+                                  state_off,
+                                  h_count,
+                                  kernel_size);
+            }
         }
     });
 }
@@ -214,6 +256,10 @@ void paged_causal_conv1d_optimized(const DataT* input_embeds,
                                    const int32_t* block_indices_begins,
                                    const int32_t* past_lens,
                                    const int32_t* cache_interval,
+                                   const uint8_t* qq_bias,
+                                   const int32_t* qq_bias_begins,
+                                   const size_t qq_bias_size,
+                                   const size_t qq_bias_begins_size,
                                    DataT* output_embeds,
                                    const size_t batch_size_in_tokens,
                                    const size_t hidden_size,
@@ -232,6 +278,10 @@ void paged_causal_conv1d_optimized(const DataT* input_embeds,
                             block_indices_begins,
                             past_lens,
                             cache_interval,
+                            qq_bias,
+                            qq_bias_begins,
+                            qq_bias_size,
+                            qq_bias_begins_size,
                             output_embeds,
                             batch_size_in_tokens,
                             hidden_size,
@@ -251,6 +301,10 @@ void paged_causal_conv1d_optimized(const DataT* input_embeds,
                                 block_indices_begins,
                                 past_lens,
                                 cache_interval,
+                                qq_bias,
+                                qq_bias_begins,
+                                qq_bias_size,
+                                qq_bias_begins_size,
                                 output_embeds,
                                 batch_size_in_tokens,
                                 hidden_size,
@@ -302,6 +356,22 @@ void paged_causal_conv1d_optimized(const DataT* input_embeds,
         const int32_t seq_interval = cache_interval[s];
         const int32_t prev_nums = (seq_interval > 0) ? (past_lens[s] % seq_interval) : 0;
         const int32_t seq_tokens = token_end - token_begin;
+        const auto tree = recurrent_tree::get_tree_mask(qq_bias,
+                                qq_bias_begins,
+                                qq_bias_size,
+                                qq_bias_begins_size,
+                                s,
+                                seq_tokens,
+                                "PagedCausalConv1D");
+        if (tree) {
+            OPENVINO_ASSERT(block_span >= seq_tokens + 1,
+                            "PagedCausalConv1D tree mode requires one input block and one output block per node. Got ",
+                            block_span,
+                            " blocks for ",
+                            seq_tokens,
+                            " nodes at sequence ",
+                            s);
+        }
 
         const size_t h_begin = blk * kChannelBlock;
         const size_t h_end = std::min(h_begin + kChannelBlock, hidden_size);
@@ -324,6 +394,17 @@ void paged_causal_conv1d_optimized(const DataT* input_embeds,
                  /*dst_stride=*/h_count * kernel_size);
 
         for (int32_t t = 0; t < seq_tokens; t++) {
+            if (tree) {
+                const int32_t parent = recurrent_tree::get_parent(tree, t, "PagedCausalConv1D");
+                const int32_t source_slot = parent < 0 ? 0 : parent + 1;
+                const int32_t source_block = block_indices[blk_begin + source_slot];
+                cvt_copy(thread_local_state + state_off,
+                         conv_state_table + static_cast<size_t>(source_block) * state_stride + state_off,
+                         size_t{1},
+                         h_count * kernel_size,
+                         h_count * kernel_size,
+                         h_count * kernel_size);
+            }
             const size_t token_idx = static_cast<size_t>(token_begin) + static_cast<size_t>(t);
             const auto* token_ptr = input_embeds + token_idx * hidden_size;
             auto* out_ptr = output_embeds + token_idx * hidden_size;
@@ -391,19 +472,29 @@ void paged_causal_conv1d_optimized(const DataT* input_embeds,
                           h_end,
                           kernel_size);
 
-            maybe_flush_state(conv_state_table,
-                              thread_local_state,
-                              block_indices,
-                              blk_begin,
-                              block_span,
-                              prev_nums,
-                              seq_interval,
-                              t,
-                              seq_tokens,
-                              state_stride,
-                              state_off,
-                              h_count,
-                              kernel_size);
+            if (tree) {
+                const int32_t output_block = block_indices[blk_begin + t + 1];
+                cvt_copy(conv_state_table + static_cast<size_t>(output_block) * state_stride + state_off,
+                         thread_local_state + state_off,
+                         size_t{1},
+                         h_count * kernel_size,
+                         h_count * kernel_size,
+                         h_count * kernel_size);
+            } else {
+                maybe_flush_state(conv_state_table,
+                                  thread_local_state,
+                                  block_indices,
+                                  blk_begin,
+                                  block_span,
+                                  prev_nums,
+                                  seq_interval,
+                                  t,
+                                  seq_tokens,
+                                  state_stride,
+                                  state_off,
+                                  h_count,
+                                  kernel_size);
+            }
         }
     });
 #endif
@@ -421,6 +512,10 @@ void paged_causal_conv1d_exec(const void* input_embeds,
                               const int32_t* block_indices_begins,
                               const int32_t* past_lens,
                               const int32_t* cache_interval,
+                              const uint8_t* qq_bias,
+                              const int32_t* qq_bias_begins,
+                              const size_t qq_bias_size,
+                              const size_t qq_bias_begins_size,
                               void* output_embeds,
                               const size_t batch_size_in_tokens,
                               const size_t hidden_size,
@@ -446,6 +541,10 @@ void paged_causal_conv1d_exec(const void* input_embeds,
                                       block_indices_begins,
                                       past_lens,
                                       cache_interval,
+                                      qq_bias,
+                                      qq_bias_begins,
+                                      qq_bias_size,
+                                      qq_bias_begins_size,
                                       static_cast<DataT*>(output_embeds),
                                       batch_size_in_tokens,
                                       hidden_size,

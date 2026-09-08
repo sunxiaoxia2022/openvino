@@ -77,6 +77,10 @@ void PagedCausalConv1D::initSupportedPrimitiveDescriptors() {
     input_configs.emplace_back(LayoutType::ncsp, ov::element::i32, getInputShapeAtPort(6), false, -1);
     input_configs.emplace_back(LayoutType::ncsp, ov::element::i32, getInputShapeAtPort(7), false, -1);
     input_configs.emplace_back(LayoutType::ncsp, ov::element::i32, getInputShapeAtPort(8), false, -1);
+    if (getParentEdges().size() == 11) {
+        input_configs.emplace_back(LayoutType::ncsp, ov::element::u8, getInputShapeAtPort(9), false, -1);
+        input_configs.emplace_back(LayoutType::ncsp, ov::element::i32, getInputShapeAtPort(10), false, -1);
+    }
 
     std::vector<PortConfigurator> output_configs = {
         PortConfigurator{LayoutType::ncsp, data_precision, getOutputShapeAtPort(0), false, -1}};
@@ -142,6 +146,11 @@ void PagedCausalConv1D::execute([[maybe_unused]] const dnnl::stream& strm) {
     const auto* block_indices_begins = getSrcDataAtPortAs<const int32_t>(6);
     const auto* past_lens = getSrcDataAtPortAs<const int32_t>(7);
     const auto* cache_interval = getSrcDataAtPortAs<const int32_t>(8);
+    const bool has_tree_inputs = getOriginalInputsNumber() == 11;
+    const auto* qq_bias = has_tree_inputs ? getSrcDataAtPortAs<const uint8_t>(9) : nullptr;
+    const auto* qq_bias_begins = has_tree_inputs ? getSrcDataAtPortAs<const int32_t>(10) : nullptr;
+    const size_t qq_bias_size = has_tree_inputs ? getSrcMemoryAtPort(9)->getStaticDims()[0] : 0;
+    const size_t qq_bias_begins_size = has_tree_inputs ? getSrcMemoryAtPort(10)->getStaticDims()[0] : 0;
 
     auto* output_embeds_raw = getDstMemoryAtPort(0)->getData();
 
@@ -161,6 +170,10 @@ void PagedCausalConv1D::execute([[maybe_unused]] const dnnl::stream& strm) {
                                                          block_indices_begins,
                                                          past_lens,
                                                          cache_interval,
+                                                         qq_bias,
+                                                         qq_bias_begins,
+                                                         qq_bias_size,
+                                                         qq_bias_begins_size,
                                                          output_embeds_raw,
                                                          batch_size_in_tokens,
                                                          hidden_size,

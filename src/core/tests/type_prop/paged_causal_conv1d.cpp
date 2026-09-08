@@ -268,7 +268,35 @@ TEST_F(TypePropPagedCausalConv1DTest, wrong_input_count) {
 
     OV_EXPECT_THROW(std::ignore = make_op(OutputVector{p, p, p}),
                     NodeValidationFailure,
-                    testing::HasSubstr("Check 'get_input_size() == 9'"));
+                    testing::HasSubstr("get_input_size() == 9 || get_input_size() == 11"));
+}
+
+TEST_F(TypePropPagedCausalConv1DTest, tree_mask_inputs) {
+    const auto input_embeds = std::make_shared<op::v0::Parameter>(element::f32, Shape{3, 256});
+    const auto conv_state_table = std::make_shared<op::v0::Parameter>(element::f32, Shape{4, 256, 4});
+    const auto conv_weight = std::make_shared<op::v0::Parameter>(element::f32, Shape{256, 1, 4});
+    const auto conv_bias = std::make_shared<op::v0::Parameter>(element::f32, Shape{256});
+    const auto subsequence_begins = std::make_shared<op::v0::Parameter>(element::i32, Shape{2});
+    const auto la_block_indices = std::make_shared<op::v0::Parameter>(element::i32, Shape{4});
+    const auto la_block_indices_begins = std::make_shared<op::v0::Parameter>(element::i32, Shape{2});
+    const auto processed_tokens = std::make_shared<op::v0::Parameter>(element::i32, Shape{1});
+    const auto cache_interval = std::make_shared<op::v0::Parameter>(element::i32, Shape{1});
+    const auto qq_bias = std::make_shared<op::v0::Parameter>(element::u8, Shape{9});
+    const auto qq_bias_begins = std::make_shared<op::v0::Parameter>(element::i32, Shape{2});
+
+    const auto op = make_op(OutputVector{input_embeds,
+                                         conv_state_table,
+                                         conv_weight,
+                                         conv_bias,
+                                         subsequence_begins,
+                                         la_block_indices,
+                                         la_block_indices_begins,
+                                         processed_tokens,
+                                         cache_interval,
+                                         qq_bias,
+                                         qq_bias_begins});
+
+    EXPECT_EQ(op->get_output_partial_shape(0), PartialShape(Shape{3, 256}));
 }
 
 TEST_F(TypePropPagedCausalConv1DTest, out_channels_hidden_size_mismatch) {

@@ -123,21 +123,42 @@ PagedGatedDeltaNetFusion::PagedGatedDeltaNetFusion(ov::pass::paged_attention::Pa
         const auto beta_flat = flatten_batch_length(pm.at(beta), {2});
 
         // Inputs 0-5 are flattened from matched GatedDeltaNet [B,L,H,*] to PagedGDN [B*L,H,*].
-        const auto paged_gdn =
-            std::make_shared<ov::op::internal::PagedGatedDeltaNet>(query_flat,
-                                                                   key_flat,
-                                                                   value_flat,
-                                                                   state_table_param->output(0),
-                                                                   gate_flat,
-                                                                   beta_flat,
-                                                                   pa_params["subsequence_begins"],
-                                                                   pa_params["la.block_indices"],
-                                                                   pa_params["la.block_indices_begins"],
-                                                                   pa_params["la.past_lens"],
-                                                                   pa_params["la.cache_interval"],
-                                                                   gdn_node->get_fuse_qk_l2norm(),
-                                                                   gdn_node->get_q_l2_norm_eps(),
-                                                                   gdn_node->get_k_l2_norm_eps());
+        std::shared_ptr<ov::op::internal::PagedGatedDeltaNet> paged_gdn;
+        const auto qq_bias = pa_params.find("qq_bias");
+        const auto qq_bias_begins = pa_params.find("qq_bias_begins");
+        if (qq_bias && qq_bias_begins) {
+            paged_gdn = std::make_shared<ov::op::internal::PagedGatedDeltaNet>(query_flat,
+                                                                               key_flat,
+                                                                               value_flat,
+                                                                               state_table_param->output(0),
+                                                                               gate_flat,
+                                                                               beta_flat,
+                                                                               pa_params["subsequence_begins"],
+                                                                               pa_params["la.block_indices"],
+                                                                               pa_params["la.block_indices_begins"],
+                                                                               pa_params["la.past_lens"],
+                                                                               pa_params["la.cache_interval"],
+                                                                               qq_bias,
+                                                                               qq_bias_begins,
+                                                                               gdn_node->get_fuse_qk_l2norm(),
+                                                                               gdn_node->get_q_l2_norm_eps(),
+                                                                               gdn_node->get_k_l2_norm_eps());
+        } else {
+            paged_gdn = std::make_shared<ov::op::internal::PagedGatedDeltaNet>(query_flat,
+                                                                               key_flat,
+                                                                               value_flat,
+                                                                               state_table_param->output(0),
+                                                                               gate_flat,
+                                                                               beta_flat,
+                                                                               pa_params["subsequence_begins"],
+                                                                               pa_params["la.block_indices"],
+                                                                               pa_params["la.block_indices_begins"],
+                                                                               pa_params["la.past_lens"],
+                                                                               pa_params["la.cache_interval"],
+                                                                               gdn_node->get_fuse_qk_l2norm(),
+                                                                               gdn_node->get_q_l2_norm_eps(),
+                                                                               gdn_node->get_k_l2_norm_eps());
+        }
 
         paged_gdn->set_friendly_name(gdn_node->get_friendly_name() + "/PagedGatedDeltaNet");
         const auto query_shape = std::make_shared<ov::op::v3::ShapeOf>(pm.at(query), ov::element::i64);

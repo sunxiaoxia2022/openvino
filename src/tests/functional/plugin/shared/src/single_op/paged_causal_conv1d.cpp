@@ -27,12 +27,18 @@ struct ShapeConfig {
     int32_t num_blocks;
 };
 
-ShapeConfig compute_shape_config(const std::vector<int32_t>& seq_lengths, const std::vector<int32_t>& cache_intervals) {
+ShapeConfig compute_shape_config(const std::vector<int32_t>& seq_lengths,
+                                 const std::vector<int32_t>& cache_intervals,
+                                 const bool tree_mode) {
     const int32_t tokens = std::accumulate(seq_lengths.begin(), seq_lengths.end(), 0);
     const int32_t num_sequences = static_cast<int32_t>(seq_lengths.size());
 
     int32_t num_blocks = 0;
     for (size_t i = 0; i < seq_lengths.size(); i++) {
+        if (tree_mode) {
+            num_blocks += seq_lengths[i] + 1;
+            continue;
+        }
         const int32_t past_len = 1 + static_cast<int32_t>(i % 3);
         if (cache_intervals[i] == 0) {
             num_blocks += 2;
@@ -56,6 +62,8 @@ void run_reference(const std::vector<T>& input_embeds,
                    const std::vector<int32_t>& block_indices_begins,
                    const std::vector<int32_t>& past_lens,
                    const std::vector<int32_t>& cache_interval,
+                   const std::vector<uint8_t>& qq_bias,
+                   const std::vector<int32_t>& qq_bias_begins,
                    int32_t hidden_size,
                    int32_t kernel_size,
                    std::vector<T>& output) {
@@ -78,6 +86,9 @@ void run_reference(const std::vector<T>& input_embeds,
         const int32_t seq_interval = cache_interval[s];
         const int32_t prev_nums = (seq_interval > 0) ? (past_lens[s] % seq_interval) : 0;
         const int32_t seq_tokens = token_end - token_begin;
+        const int32_t qq_begin = qq_bias_begins.empty() ? 0 : qq_bias_begins[s];
+        const int32_t qq_end = qq_bias_begins.empty() ? 0 : qq_bias_begins[s + 1];
+        const bool tree_mode = qq_end > qq_begin;
 
         const int32_t read_block = block_indices[blk_begin];
         for (size_t i = 0; i < state_stride; i++) {
@@ -85,6 +96,20 @@ void run_reference(const std::vector<T>& input_embeds,
         }
 
         for (int32_t t = 0; t < seq_tokens; t++) {
+            if (tree_mode) {
+                int32_t parent = -1;
+                for (int32_t candidate = t - 1; candidate >= 0; --candidate) {
+                    if (qq_bias[qq_begin + t * seq_tokens + candidate] != 0) {
+                        parent = candidate;
+                        break;
+                    }
+                }
+                const int32_t source_block = block_indices[blk_begin + (parent < 0 ? 0 : parent + 1)];
+                for (size_t i = 0; i < state_stride; i++) {
+                    local_state[i] =
+                        static_cast<float>(conv_state_table[static_cast<size_t>(source_block) * state_stride + i]);
+                }
+            }
             const size_t token_idx = static_cast<size_t>(token_begin + t);
 
             for (int32_t h = 0; h < hidden_size; h++) {
@@ -102,16 +127,24 @@ void run_reference(const std::vector<T>& input_embeds,
                 output[token_idx * hidden_size + h] = static_cast<T>(sum);
             }
 
-            const int32_t cached_tokens = prev_nums + (t + 1);
-            const bool interval_hit = (seq_interval > 0) && ((cached_tokens % seq_interval) == 0);
-            const bool is_last_token = (t == seq_tokens - 1);
-            if (interval_hit || is_last_token) {
-                const int32_t slot = (seq_interval > 0) ? (1 + (cached_tokens - 1) / seq_interval) : 1;
-                if (slot < block_span) {
-                    const int32_t phys_block = block_indices[blk_begin + slot];
-                    for (size_t i = 0; i < state_stride; i++) {
-                        conv_state_table[static_cast<size_t>(phys_block) * state_stride + i] =
-                            static_cast<T>(local_state[i]);
+            if (tree_mode) {
+                const int32_t phys_block = block_indices[blk_begin + t + 1];
+                for (size_t i = 0; i < state_stride; i++) {
+                    conv_state_table[static_cast<size_t>(phys_block) * state_stride + i] =
+                        static_cast<T>(local_state[i]);
+                }
+            } else {
+                const int32_t cached_tokens = prev_nums + (t + 1);
+                const bool interval_hit = (seq_interval > 0) && ((cached_tokens % seq_interval) == 0);
+                const bool is_last_token = (t == seq_tokens - 1);
+                if (interval_hit || is_last_token) {
+                    const int32_t slot = (seq_interval > 0) ? (1 + (cached_tokens - 1) / seq_interval) : 1;
+                    if (slot < block_span) {
+                        const int32_t phys_block = block_indices[blk_begin + slot];
+                        for (size_t i = 0; i < state_stride; i++) {
+                            conv_state_table[static_cast<size_t>(phys_block) * state_stride + i] =
+                                static_cast<T>(local_state[i]);
+                        }
                     }
                 }
             }
@@ -149,6 +182,10 @@ std::vector<ov::Tensor> calculate_typed_refs(const std::map<std::shared_ptr<ov::
     auto block_indices_begins = tensor_to_vector<int32_t>(host_inputs.at(params[6]));
     auto past_lens = tensor_to_vector<int32_t>(host_inputs.at(params[7]));
     auto cache_interval = tensor_to_vector<int32_t>(host_inputs.at(params[8]));
+    const auto qq_bias = params.size() == 11 ? tensor_to_vector<uint8_t>(host_inputs.at(params[9]))
+                                             : std::vector<uint8_t>{};
+    const auto qq_bias_begins = params.size() == 11 ? tensor_to_vector<int32_t>(host_inputs.at(params[10]))
+                                                    : std::vector<int32_t>{};
 
     std::vector<T> ref_output;
     run_reference(input_embeds,
@@ -161,6 +198,8 @@ std::vector<ov::Tensor> calculate_typed_refs(const std::map<std::shared_ptr<ov::
                   block_indices_begins,
                   past_lens,
                   cache_interval,
+                  qq_bias,
+                  qq_bias_begins,
                   hidden_size,
                   kernel_size,
                   ref_output);
@@ -203,6 +242,7 @@ std::string PagedCausalConv1DLayerTest::getTestCaseName(
     }
     result << "_Type=" << p.element_type;
     result << "_Target=" << p.target_device;
+    result << "_Tree=" << (p.tree_mode ? "yes" : "no");
     return result.str();
 }
 
@@ -232,13 +272,15 @@ void PagedCausalConv1DLayerTest::SetUp() {
     std::vector<ov::Shape> block_begins_targets;
     std::vector<ov::Shape> past_lens_targets;
     std::vector<ov::Shape> interval_targets;
+    std::vector<ov::Shape> qq_bias_targets;
+    std::vector<ov::Shape> qq_bias_begins_targets;
 
     for (size_t iter = 0; iter < num_iters; iter++) {
         const auto& sl = p.seq_lengths_sets[iter];
         const auto& ci = p.cache_intervals_sets[iter];
         OPENVINO_ASSERT(sl.size() == ci.size());
 
-        const auto cfg = compute_shape_config(sl, ci);
+        const auto cfg = compute_shape_config(sl, ci, p.tree_mode);
 
         embeds_targets.push_back({static_cast<size_t>(cfg.tokens), hidden});
         state_targets.push_back({static_cast<size_t>(cfg.num_blocks), hidden, kernel});
@@ -247,6 +289,13 @@ void PagedCausalConv1DLayerTest::SetUp() {
         block_begins_targets.push_back({static_cast<size_t>(cfg.num_sequences + 1)});
         past_lens_targets.push_back({static_cast<size_t>(cfg.num_sequences)});
         interval_targets.push_back({static_cast<size_t>(cfg.num_sequences)});
+        if (p.tree_mode) {
+            size_t qq_bias_size = 0;
+            for (const auto seq_len : sl)
+                qq_bias_size += static_cast<size_t>(seq_len) * seq_len;
+            qq_bias_targets.push_back({qq_bias_size});
+            qq_bias_begins_targets.push_back({static_cast<size_t>(cfg.num_sequences + 1)});
+        }
 
         // Precompute metadata for generate_inputs
         auto& data = m_iteration_data[iter];
@@ -257,9 +306,12 @@ void PagedCausalConv1DLayerTest::SetUp() {
         data.block_indices_begins.clear();
         data.past_lens.clear();
         data.cache_interval.clear();
+        data.qq_bias.clear();
+        data.qq_bias_begins.clear();
 
         data.subsequence_begins.push_back(0);
         data.block_indices_begins.push_back(0);
+        data.qq_bias_begins.push_back(0);
 
         int32_t total_blocks = 0;
         for (int32_t seq = 0; seq < num_sequences; seq++) {
@@ -271,8 +323,8 @@ void PagedCausalConv1DLayerTest::SetUp() {
             data.past_lens.push_back(seq_past_len);
             data.cache_interval.push_back(seq_interval);
 
-            int32_t required_slots = 2;
-            if (seq_interval > 0) {
+            int32_t required_slots = p.tree_mode ? seq_len + 1 : 2;
+            if (!p.tree_mode && seq_interval > 0) {
                 const int32_t prev_nums = seq_past_len % seq_interval;
                 const int32_t write_blocks = (prev_nums + seq_len + seq_interval - 1) / seq_interval;
                 required_slots = 1 + write_blocks;
@@ -282,11 +334,25 @@ void PagedCausalConv1DLayerTest::SetUp() {
             }
             total_blocks += required_slots;
             data.block_indices_begins.push_back(total_blocks);
+
+            if (p.tree_mode) {
+                for (int32_t row = 0; row < seq_len; row++) {
+                    for (int32_t col = 0; col < seq_len; col++) {
+                        bool visible = row == col;
+                        for (int32_t ancestor = row; !visible && ancestor > 0;) {
+                            ancestor = (ancestor - 1) / 2;
+                            visible = ancestor == col;
+                        }
+                        data.qq_bias.push_back(visible ? 1 : 0);
+                    }
+                }
+            }
+            data.qq_bias_begins.push_back(static_cast<int32_t>(data.qq_bias.size()));
         }
     }
 
-    // Use dynamic partial shapes for dimensions that vary across iterations
-    init_input_shapes({
+    // Use dynamic partial shapes for dimensions that vary across iterations.
+    std::vector<InputShape> input_shapes{
         InputShape{ov::PartialShape{-1, static_cast<int64_t>(hidden)}, embeds_targets},
         InputShape{ov::PartialShape{-1, static_cast<int64_t>(hidden), static_cast<int64_t>(kernel)}, state_targets},
         InputShape{ov::PartialShape{static_cast<int64_t>(hidden), 1, static_cast<int64_t>(kernel)}, {weight_shape}},
@@ -296,7 +362,12 @@ void PagedCausalConv1DLayerTest::SetUp() {
         InputShape{ov::PartialShape{-1}, block_begins_targets},
         InputShape{ov::PartialShape{-1}, past_lens_targets},
         InputShape{ov::PartialShape{-1}, interval_targets},
-    });
+    };
+    if (p.tree_mode) {
+        input_shapes.emplace_back(ov::PartialShape{-1}, qq_bias_targets);
+        input_shapes.emplace_back(ov::PartialShape{-1}, qq_bias_begins_targets);
+    }
+    init_input_shapes(input_shapes);
 
     // Build model with dynamic shapes
     auto p_embeds = std::make_shared<ov::op::v0::Parameter>(data_type, inputDynamicShapes[0]);
@@ -309,26 +380,47 @@ void PagedCausalConv1DLayerTest::SetUp() {
     auto p_past_lens = std::make_shared<ov::op::v0::Parameter>(ov::element::i32, inputDynamicShapes[7]);
     auto p_cache_interval = std::make_shared<ov::op::v0::Parameter>(ov::element::i32, inputDynamicShapes[8]);
 
-    auto conv1d = std::make_shared<ov::op::internal::PagedCausalConv1D>(p_embeds,
-                                                                        p_state,
-                                                                        p_weight,
-                                                                        p_bias,
-                                                                        p_subseq,
-                                                                        p_blocks,
-                                                                        p_block_begins,
-                                                                        p_past_lens,
-                                                                        p_cache_interval);
+    ov::ParameterVector parameters{p_embeds,
+                                   p_state,
+                                   p_weight,
+                                   p_bias,
+                                   p_subseq,
+                                   p_blocks,
+                                   p_block_begins,
+                                   p_past_lens,
+                                   p_cache_interval};
+    std::shared_ptr<ov::op::internal::PagedCausalConv1D> conv1d;
+    if (p.tree_mode) {
+        auto p_qq_bias = std::make_shared<ov::op::v0::Parameter>(ov::element::u8, inputDynamicShapes[9]);
+        auto p_qq_bias_begins =
+            std::make_shared<ov::op::v0::Parameter>(ov::element::i32, inputDynamicShapes[10]);
+        parameters.push_back(p_qq_bias);
+        parameters.push_back(p_qq_bias_begins);
+        conv1d = std::make_shared<ov::op::internal::PagedCausalConv1D>(p_embeds,
+                                                                       p_state,
+                                                                       p_weight,
+                                                                       p_bias,
+                                                                       p_subseq,
+                                                                       p_blocks,
+                                                                       p_block_begins,
+                                                                       p_past_lens,
+                                                                       p_cache_interval,
+                                                                       p_qq_bias,
+                                                                       p_qq_bias_begins);
+    } else {
+        conv1d = std::make_shared<ov::op::internal::PagedCausalConv1D>(p_embeds,
+                                                                       p_state,
+                                                                       p_weight,
+                                                                       p_bias,
+                                                                       p_subseq,
+                                                                       p_blocks,
+                                                                       p_block_begins,
+                                                                       p_past_lens,
+                                                                       p_cache_interval);
+    }
 
     function = std::make_shared<ov::Model>(ov::ResultVector{std::make_shared<ov::op::v0::Result>(conv1d)},
-                                           ov::ParameterVector{p_embeds,
-                                                               p_state,
-                                                               p_weight,
-                                                               p_bias,
-                                                               p_subseq,
-                                                               p_blocks,
-                                                               p_block_begins,
-                                                               p_past_lens,
-                                                               p_cache_interval});
+                                           parameters);
 }
 
 void PagedCausalConv1DLayerTest::generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) {
@@ -381,6 +473,11 @@ void PagedCausalConv1DLayerTest::generate_inputs(const std::vector<ov::Shape>& t
             tensor = make_i32_tensor(iter_data.past_lens);
         } else if (i == 8) {
             tensor = make_i32_tensor(iter_data.cache_interval);
+        } else if (i == 9) {
+            tensor = ov::Tensor(ov::element::u8, ov::Shape{iter_data.qq_bias.size()});
+            std::copy(iter_data.qq_bias.begin(), iter_data.qq_bias.end(), tensor.data<uint8_t>());
+        } else if (i == 10) {
+            tensor = make_i32_tensor(iter_data.qq_bias_begins);
         }
 
         host_inputs[param] = tensor;

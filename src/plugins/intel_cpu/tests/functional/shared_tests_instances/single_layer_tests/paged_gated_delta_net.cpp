@@ -20,6 +20,8 @@ std::vector<PagedGatedDeltaNetLayerParams> paged_gdn_test_cases = {
     {2, 4, 8, 8, {3, 2}, {0, 0}, ov::element::f32, "CPU"},
     {1, 4, 16, 8, {2, 5, 1}, {1, 4, 2}, ov::element::f32, "CPU"},
     {2, 6, 32, 64, {4, 2, 3}, {3, 2, 5}, ov::element::f32, "CPU"},
+    // Tree verification: node 1 and node 2 are siblings; node 3 descends from node 1.
+    {2, 4, 8, 8, {4}, {1}, ov::element::f32, "CPU", true},
     {4, 8, 32, 64, {15, 32, 33}, {16, 16, 16}, ov::element::f32, "CPU"},
     {8, 8, 128, 128, {15, 32, 33}, {16, 16, 16}, ov::element::f32, "CPU"},
     {2, 4, 8, 8, {3, 3}, {2, 3}, ov::element::f16, "CPU"},

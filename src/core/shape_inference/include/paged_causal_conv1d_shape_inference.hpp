@@ -10,7 +10,7 @@
 namespace ov::op::internal {
 template <class T, class TRShape = result_shape_t<T>>
 std::vector<TRShape> shape_infer(const PagedCausalConv1D* op, const std::vector<T>& input_shapes) {
-    NODE_VALIDATION_CHECK(op, input_shapes.size() == 9);
+    NODE_VALIDATION_CHECK(op, input_shapes.size() == 9 || input_shapes.size() == 11);
 
     NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[0].rank().compatible(2));
     NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[1].rank().compatible(3));
@@ -21,6 +21,10 @@ std::vector<TRShape> shape_infer(const PagedCausalConv1D* op, const std::vector<
     NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[6].rank().compatible(1));
     NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[7].rank().compatible(1));
     NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[8].rank().compatible(1));
+    if (input_shapes.size() == 11) {
+        NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[9].rank().compatible(1));
+        NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[10].rank().compatible(1));
+    }
 
     const auto input_embeds_rank_is_static = input_shapes[0].rank().is_static();
     const auto conv_state_table_rank_is_static = input_shapes[1].rank().is_static();
@@ -86,6 +90,14 @@ std::vector<TRShape> shape_infer(const PagedCausalConv1D* op, const std::vector<
                                (input_shapes[8][0] + 1).compatible(input_shapes[4][0]),
                                "The size of cache_interval must be batch_size_in_sequences (subsequence_begins "
                                "size - 1).");
+    }
+
+    if (input_shapes.size() == 11 && subsequence_begins_rank_is_static && input_shapes[10].rank().is_static()) {
+        NODE_SHAPE_INFER_CHECK(op,
+                               input_shapes,
+                               input_shapes[4][0].compatible(input_shapes[10][0]) ||
+                                   input_shapes[10][0].compatible(ov::Dimension(0)),
+                               "The size of qq_bias_begins must match subsequence_begins or be zero.");
     }
 
     // output_embeds has the same shape as input_embeds: [batch_size_in_tokens, hidden_size]

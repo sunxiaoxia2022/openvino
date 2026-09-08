@@ -45,9 +45,25 @@ public:
                       const Output<Node>& processed_tokens,
                       const Output<Node>& cache_interval);
 
+    /// \brief Constructs a PagedCausalConv1D operation with speculative tree metadata.
+    ///
+    /// \param qq_bias Flattened per-sequence query-to-query ancestor masks, element type u8.
+    /// \param qq_bias_begins Prefix offsets into qq_bias [batch_size_in_sequences+1], element type i32 or i64.
+    PagedCausalConv1D(const Output<Node>& input_embeds,
+                      const Output<Node>& conv_state_table,
+                      const Output<Node>& conv_weight,
+                      const Output<Node>& conv_bias,
+                      const Output<Node>& subsequence_begins,
+                      const Output<Node>& la_block_indices,
+                      const Output<Node>& la_block_indices_begins,
+                      const Output<Node>& processed_tokens,
+                      const Output<Node>& cache_interval,
+                      const Output<Node>& qq_bias,
+                      const Output<Node>& qq_bias_begins);
+
     /// \brief Constructs a PagedCausalConv1D operation from input vector.
     ///
-    /// \param args Input tensor vector (9 inputs in order listed above).
+    /// \param args Input tensor vector (9 inputs without tree metadata or 11 inputs with it).
     PagedCausalConv1D(const ov::OutputVector& args);
 
     void validate_and_infer_types() override;

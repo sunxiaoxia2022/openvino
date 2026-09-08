@@ -41,6 +41,8 @@ std::vector<PagedCausalConv1DLayerParams> paged_conv1d_test_cases = {
     {1, 2, false, {{2}}, {{2}}, ov::element::f32, "CPU"},
     // Larger hidden size
     {8, 3, true, {{3, 2}}, {{2, 3}}, ov::element::f32, "CPU"},
+    // Tree verification: node 1 and node 2 are siblings; node 3 descends from node 1.
+    {8, 3, true, {{4}}, {{1}}, ov::element::f32, "CPU", true},
     {64, 4, true, {{4, 2, 3}}, {{3, 2, 5}}, ov::element::f32, "CPU"},
     // past_lens offset affecting flush schedule
     {1, 2, false, {{3}}, {{2}}, ov::element::f32, "CPU"},

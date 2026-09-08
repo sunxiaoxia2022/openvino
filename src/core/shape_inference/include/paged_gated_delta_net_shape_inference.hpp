@@ -11,7 +11,7 @@ namespace ov::op::internal {
 
 template <class T, class TRShape = result_shape_t<T>>
 std::vector<TRShape> shape_infer(const PagedGatedDeltaNet* op, const std::vector<T>& input_shapes) {
-    NODE_VALIDATION_CHECK(op, input_shapes.size() == 11);
+    NODE_VALIDATION_CHECK(op, input_shapes.size() == 11 || input_shapes.size() == 13);
 
     NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[0].rank().compatible(3));
     NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[1].rank().compatible(3));
@@ -24,6 +24,10 @@ std::vector<TRShape> shape_infer(const PagedGatedDeltaNet* op, const std::vector
     NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[8].rank().compatible(1));
     NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[9].rank().compatible(1));
     NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[10].rank().compatible(1));
+    if (input_shapes.size() == 13) {
+        NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[11].rank().compatible(1));
+        NODE_SHAPE_INFER_CHECK(op, input_shapes, input_shapes[12].rank().compatible(1));
+    }
 
     // [batch_size_in_tokens, num_heads, key_head_dim]
     const auto& query_ps = input_shapes[0];
@@ -80,6 +84,15 @@ std::vector<TRShape> shape_infer(const PagedGatedDeltaNet* op, const std::vector
             input_shapes,
             state_ps[3].compatible(key_ps[2]),
             "The key dimension of recurrent_state_table and the head size of key input must be equal.");
+    }
+
+    if (input_shapes.size() == 13 && input_shapes[6].rank().is_static() &&
+        input_shapes[12].rank().is_static()) {
+        NODE_SHAPE_INFER_CHECK(op,
+                               input_shapes,
+                               input_shapes[6][0].compatible(input_shapes[12][0]) ||
+                                   input_shapes[12][0].compatible(ov::Dimension(0)),
+                               "The size of qq_bias_begins must match subsequence_begins or be zero.");
     }
 
     // output: [batch_size_in_tokens, v_num_heads, value_head_dim] — same shape as value input
