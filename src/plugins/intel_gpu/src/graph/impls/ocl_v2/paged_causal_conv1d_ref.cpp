@@ -22,11 +22,13 @@ protected:
         const auto& input_shape = params.get_input_layout(paged_causal_conv1d::INPUT_EMBEDS).get_partial_shape();
         const auto& state_shape = params.get_input_layout(paged_causal_conv1d::CONV_STATE_TABLE).get_partial_shape();
         const auto& bias_shape = params.get_input_layout(paged_causal_conv1d::CONV_BIAS).get_partial_shape();
+        const bool has_tree_mask = params.input_layouts.size() == 11;
         const bool has_bias = bias_shape.rank().is_static() && bias_shape.size() == 1 && bias_shape[0].is_static() && bias_shape[0].get_length() != 0;
 
         jit.make("HIDDEN_SIZE", static_cast<int>(input_shape[1].get_length()));
         jit.make("KERNEL_SIZE", static_cast<int>(state_shape[2].get_length()));
         jit.make("HAS_BIAS", has_bias ? 1 : 0);
+        jit.make("HAS_TREE_MASK", has_tree_mask ? 1 : 0);
 
         return jit;
     }

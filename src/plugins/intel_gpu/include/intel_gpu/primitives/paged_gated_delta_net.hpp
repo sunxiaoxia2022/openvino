@@ -31,6 +31,8 @@ struct paged_gated_delta_net : public primitive_base<paged_gated_delta_net> {
         BLOCK_INDICES_BEGINS = 8,
         PAST_LENS = 9,
         CACHE_INTERVAL = 10,
+        QQ_BIAS = 11,
+        QQ_BIAS_BEGINS = 12,
     };
 
     paged_gated_delta_net() : primitive_base("", {}) {}
@@ -44,7 +46,9 @@ struct paged_gated_delta_net : public primitive_base<paged_gated_delta_net> {
           use_qk_l2norm(use_qk_l2norm),
           q_l2_norm_eps(q_l2_norm_eps),
           k_l2_norm_eps(k_l2_norm_eps) {
-        OPENVINO_ASSERT((inputs.size() == 11), "[GPU] Unexpected inputs number for paged_gated_delta_net primitive: ", inputs.size());
+        OPENVINO_ASSERT(inputs.size() == 11 || inputs.size() == 13,
+                "[GPU] Unexpected inputs number for paged_gated_delta_net primitive: ",
+                inputs.size());
     }
 
     size_t hash() const override {

@@ -12,7 +12,7 @@
 namespace ov::intel_gpu {
 
 static void CreatePagedCausalConv1DOp(ProgramBuilder& p, const std::shared_ptr<ov::op::internal::PagedCausalConv1D>& op) {
-    validate_inputs_count(op, {9});
+    validate_inputs_count(op, {9, 11});
 
     // Linear attention models use depthwise convolution
     // where group_size == hidden_size, i.e. conv_weight[1] (in_channels per group) must be 1.

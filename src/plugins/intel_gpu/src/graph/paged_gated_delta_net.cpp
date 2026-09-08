@@ -23,7 +23,8 @@ layout paged_gated_delta_net_inst::calc_output_layout(const paged_gated_delta_ne
 template <typename ShapeType>
 std::vector<layout> paged_gated_delta_net_inst::calc_output_layouts(const paged_gated_delta_net_node& node, const kernel_impl_params& impl_param) {
     const auto& all_inputs = node.get_input_layouts();
-    OPENVINO_ASSERT(all_inputs.size() == 11, "paged_gated_delta_net must have 11 inputs");
+    OPENVINO_ASSERT(all_inputs.size() == 11 || all_inputs.size() == 13,
+                    "paged_gated_delta_net must have 11 or 13 inputs");
 
     const auto value_layout = impl_param.get_input_layout(2);
 
@@ -60,6 +61,10 @@ std::string paged_gated_delta_net_inst::to_string(const paged_gated_delta_net_no
     paged_gdn_info.add("block_indices_begins", node.input(8).id());
     paged_gdn_info.add("past_lens", node.input(9).id());
     paged_gdn_info.add("cache_interval", node.input(10).id());
+    if (node.get_dependencies().size() == 13) {
+        paged_gdn_info.add("qq_bias", node.input(11).id());
+        paged_gdn_info.add("qq_bias_begins", node.input(12).id());
+    }
     paged_gdn_info.add("k_head_size", desc->k_head_size);
     paged_gdn_info.add("v_head_size", desc->v_head_size);
     paged_gdn_info.add("k_heads_num", desc->k_heads_num);

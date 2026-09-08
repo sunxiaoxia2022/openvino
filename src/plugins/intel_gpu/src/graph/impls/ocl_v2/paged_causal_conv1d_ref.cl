@@ -14,6 +14,10 @@ KERNEL(paged_causal_conv1d_ref)
  __global INPUT6_TYPE* block_indices_begins,
  __global INPUT7_TYPE* past_lens,
  __global INPUT8_TYPE* cache_interval,
+#if HAS_TREE_MASK
+ __global INPUT9_TYPE* qq_bias,
+ __global INPUT10_TYPE* qq_bias_begins,
+#endif
  __global OUTPUT_TYPE* output_embeds,
  int seq_count,
  int hidden_size,
@@ -44,8 +48,19 @@ KERNEL(paged_causal_conv1d_ref)
 
     const int seq_tokens = token_end - token_begin;
     const int block_span = blk_end - blk_begin;
+#if HAS_TREE_MASK
+    const int qq_begin = qq_bias_begins[seq];
+    const int qq_end = qq_bias_begins[seq + 1];
+    const int tree_mode = qq_end > qq_begin;
+    if (tree_mode && qq_end - qq_begin != seq_tokens * seq_tokens)
+        return;
+#endif
 
-    if (blk_end <= blk_begin || block_span <= 1) {
+    if (blk_end <= blk_begin ||
+#if HAS_TREE_MASK
+        (tree_mode && block_span < seq_tokens + 1) ||
+#endif
+        block_span <= 1) {
         for (int t = 0; t < seq_tokens; t++) {
             const int out_off = (token_begin + t) * output_token_stride + h * output_hidden_stride;
             output_embeds[out_off] = TO_OUTPUT_TYPE(0.0f);
@@ -80,6 +95,27 @@ KERNEL(paged_causal_conv1d_ref)
     for (int t = 0; t < seq_tokens; t++) {
         const int token_idx = token_begin + t;
 
+#if HAS_TREE_MASK
+        if (tree_mode) {
+            if (qq_bias[qq_begin + t * seq_tokens + t] == 0)
+            return;
+            int parent = -1;
+            for (int candidate = t - 1; candidate >= 0; candidate--) {
+                if (qq_bias[qq_begin + t * seq_tokens + candidate] != 0) {
+                    parent = candidate;
+                    break;
+                }
+            }
+            const int parent_block = block_indices[blk_begin + (parent < 0 ? 0 : parent + 1)];
+            if (parent_block < 0 || parent_block >= num_blocks)
+                return;
+            const int parent_state_base = parent_block * state_block_stride + h * state_hidden_stride;
+            for (int k = 0; k < KERNEL_SIZE; k++) {
+                state[k] = convert_float(conv_state_table[parent_state_base + k * state_kernel_stride]);
+            }
+        }
+#endif
+
         for (int k = 0; k + 1 < KERNEL_SIZE; k++) {
             state[k] = state[k + 1];
         }
@@ -96,18 +132,26 @@ KERNEL(paged_causal_conv1d_ref)
         const int out_off = token_idx * output_token_stride + h * output_hidden_stride;
         output_embeds[out_off] = TO_OUTPUT_TYPE(sum);
 
-        const int cached_tokens = prev_nums + (t + 1);
-        const int interval_hit = (seq_interval > 0) && ((cached_tokens % seq_interval) == 0);
-        const int is_last_token = (t == seq_tokens - 1);
-        if (interval_hit || is_last_token) {
-            const int slot = (seq_interval > 0) ? (1 + (cached_tokens - 1) / seq_interval) : 1;
-            if (slot >= 1 && slot < block_span) {
-                const int physical_block = block_indices[blk_begin + slot];
-                if (physical_block >= 0 && physical_block < num_blocks) {
-                    const int state_base = physical_block * state_block_stride + h * state_hidden_stride;
-                    for (int k = 0; k < KERNEL_SIZE; k++) {
-                        conv_state_table[state_base + k * state_kernel_stride] = TO_INPUT1_TYPE(state[k]);
-                    }
+        int slot = 0;
+#if HAS_TREE_MASK
+        if (tree_mode) {
+            slot = t + 1;
+        } else
+#endif
+        {
+            const int cached_tokens = prev_nums + (t + 1);
+            const int interval_hit = (seq_interval > 0) && ((cached_tokens % seq_interval) == 0);
+            const int is_last_token = (t == seq_tokens - 1);
+            if (!(interval_hit || is_last_token))
+                continue;
+            slot = (seq_interval > 0) ? (1 + (cached_tokens - 1) / seq_interval) : 1;
+        }
+        if (slot >= 1 && slot < block_span) {
+            const int physical_block = block_indices[blk_begin + slot];
+            if (physical_block >= 0 && physical_block < num_blocks) {
+                const int state_base = physical_block * state_block_stride + h * state_hidden_stride;
+                for (int k = 0; k < KERNEL_SIZE; k++) {
+                    conv_state_table[state_base + k * state_kernel_stride] = TO_INPUT1_TYPE(state[k]);
                 }
             }
         }

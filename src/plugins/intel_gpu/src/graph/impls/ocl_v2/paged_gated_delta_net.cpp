@@ -76,6 +76,7 @@ protected:
     [[nodiscard]] JitConstants get_jit_constants(const RuntimeParams& params) const override {
         auto jit = KernelGenerator::get_jit_constants(params);
         auto desc = params.typed_desc<paged_gated_delta_net>();
+        const bool has_tree_mask = params.input_layouts.size() == 13;
 
         const auto& q_shape = params.get_input_layout(paged_gated_delta_net::QUERY).get_partial_shape();
         const auto& v_shape = params.get_input_layout(paged_gated_delta_net::VALUE).get_partial_shape();
@@ -97,6 +98,7 @@ protected:
         jit.make("Q_L2_NORM_EPS", desc->q_l2_norm_eps);
         jit.make("K_L2_NORM_EPS", desc->k_l2_norm_eps);
         jit.make("SCALE_FACTOR", scale_factor);
+        jit.make("HAS_TREE_MASK", has_tree_mask ? 1 : 0);
 
         return jit;
     }

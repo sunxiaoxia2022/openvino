@@ -40,6 +40,10 @@ struct PagedGatedDeltaNetBase : public ImplementationManager {
                 if (!one_of(in_layout.data_type, supported_real_types)) {
                     return false;
                 }
+            } else if (i == paged_gated_delta_net::QQ_BIAS) {
+                if (in_layout.data_type != ov::element::u8) {
+                    return false;
+                }
             } else if (in_layout.data_type != ov::element::i32) {
                 return false;
             }
@@ -77,6 +81,9 @@ struct PagedGatedDeltaNetOpt : public PagedGatedDeltaNetBase {
 
 protected:
     bool validate_internal(const program_node& node) const override {
+        if (node.get_dependencies().size() == 13) {
+            return false;
+        }
         const auto& q_shape = node.get_input_layout(paged_gated_delta_net::QUERY).get_partial_shape();
         const auto& v_shape = node.get_input_layout(paged_gated_delta_net::VALUE).get_partial_shape();
 

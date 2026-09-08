@@ -20,7 +20,7 @@ using PagedGatedDeltaNet = ov::op::internal::PagedGatedDeltaNet;
 namespace ov::intel_gpu {
 
 static void CreatePagedGatedDeltaNetOp(ProgramBuilder& p, const std::shared_ptr<ov::op::internal::PagedGatedDeltaNet>& op) {
-    validate_inputs_count(op, {11});
+    validate_inputs_count(op, {11, 13});
 
     auto inputs = p.GetInputInfo(op);
     const std::string layer_name = layer_type_name_ID(op);

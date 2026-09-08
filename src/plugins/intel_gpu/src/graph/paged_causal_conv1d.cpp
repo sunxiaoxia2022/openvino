@@ -23,7 +23,8 @@ layout paged_causal_conv1d_inst::calc_output_layout(const paged_causal_conv1d_no
 template <typename ShapeType>
 std::vector<layout> paged_causal_conv1d_inst::calc_output_layouts(const paged_causal_conv1d_node& node, const kernel_impl_params& impl_param) {
     const auto& all_inputs = node.get_input_layouts();
-    OPENVINO_ASSERT(all_inputs.size() == 9, "paged_causal_conv1d must have 9 inputs");
+    OPENVINO_ASSERT(all_inputs.size() == 9 || all_inputs.size() == 11,
+                    "paged_causal_conv1d must have 9 or 11 inputs");
 
     const auto input_layout = impl_param.get_input_layout(0);
 
@@ -58,6 +59,10 @@ std::string paged_causal_conv1d_inst::to_string(const paged_causal_conv1d_node& 
     pcc_info.add("block_indices_begins", node.input(6).id());
     pcc_info.add("past_lens", node.input(7).id());
     pcc_info.add("cache_interval", node.input(8).id());
+    if (node.get_dependencies().size() == 11) {
+        pcc_info.add("qq_bias", node.input(9).id());
+        pcc_info.add("qq_bias_begins", node.input(10).id());
+    }
     pcc_info.add("hidden_size", desc->hidden_size);
     pcc_info.add("kernel_size", desc->kernel_size);
 

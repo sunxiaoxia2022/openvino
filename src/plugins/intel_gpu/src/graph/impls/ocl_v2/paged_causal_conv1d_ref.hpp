@@ -41,6 +41,10 @@ struct PagedCausalConv1DRef : public ImplementationManager {
                 if (!one_of(in_layout.data_type, supported_real_types)) {
                     return false;
                 }
+            } else if (i == paged_causal_conv1d::QQ_BIAS) {
+                if (in_layout.data_type != ov::element::u8) {
+                    return false;
+                }
             } else if (in_layout.data_type != ov::element::i32) {
                 return false;
             }
