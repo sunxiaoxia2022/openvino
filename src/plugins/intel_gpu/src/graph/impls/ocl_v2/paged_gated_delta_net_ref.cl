@@ -82,7 +82,7 @@ KERNEL(paged_gated_delta_net_ref)
     const int v_head_base = (h + value_head_offset) * v_head_stride;
     const int state_stride = K_HEAD_DIM * V_HEAD_DIM;
 
-    float state[V_BLOCK_SIZE][K_SLICE_SIZE];
+    float state[V_BLOCK_SIZE][K_HEAD_DIM];
     float q_norm[K_SLICE_SIZE];
     float k_norm[K_SLICE_SIZE];
 
@@ -107,6 +107,8 @@ KERNEL(paged_gated_delta_net_ref)
     int token = token_begin;
 #if HAS_TREE_MASK
     if (tree_mode) {
+        if (lid != 0)
+            return;
         for (; token < token_end; token++) {
             const int node = token - token_begin;
             if (qq_bias[qq_begin + node * seq_tokens + node] == 0)
@@ -126,10 +128,8 @@ KERNEL(paged_gated_delta_net_ref)
                 if (curr_iv >= V_HEAD_DIM)
                     continue;
                 const int base = parent_block_base + curr_iv * K_HEAD_DIM;
-                for (int ks = 0; ks < K_SLICE_SIZE; ks++) {
-                    const int k_idx = lid + ks * SUBGROUP_SIZE;
-                    if (k_idx < K_HEAD_DIM)
-                        state[v_idx][ks] = convert_float(recurrent_state_table[base + k_idx]);
+                for (int k_idx = 0; k_idx < K_HEAD_DIM; k_idx++) {
+                    state[v_idx][k_idx] = convert_float(recurrent_state_table[base + k_idx]);
                 }
             }
 
@@ -137,30 +137,20 @@ KERNEL(paged_gated_delta_net_ref)
             const int k_base = token * k_token_stride + k_head_base;
             const int v_base = token * v_token_stride + v_head_base;
             const int g_idx = token * V_HEAD_NUM + h;
-            float q_sum_local = 0.0f;
-            float k_sum_local = 0.0f;
-            for (int ks = 0; ks < K_SLICE_SIZE; ks++) {
-                const int k_idx = lid + ks * SUBGROUP_SIZE;
-                if (k_idx < K_HEAD_DIM) {
-                    q_norm[ks] = convert_float(query[q_base + k_idx]);
-                    k_norm[ks] = convert_float(key[k_base + k_idx]);
-                    q_sum_local = fma(q_norm[ks], q_norm[ks], q_sum_local);
-                    k_sum_local = fma(k_norm[ks], k_norm[ks], k_sum_local);
-                } else {
-                    q_norm[ks] = 0.0f;
-                    k_norm[ks] = 0.0f;
-                }
+            float q_sum = 0.0f;
+            float k_sum = 0.0f;
+            for (int k_idx = 0; k_idx < K_HEAD_DIM; k_idx++) {
+                const float q_val = convert_float(query[q_base + k_idx]);
+                const float k_val = convert_float(key[k_base + k_idx]);
+                q_sum = fma(q_val, q_val, q_sum);
+                k_sum = fma(k_val, k_val, k_sum);
             }
             float q_scale = SCALE_FACTOR;
             float k_scale = 1.0f;
 #if FUSE_QK_L2NORM
-            q_scale = FUNC(l2norm_scale)(sub_group_reduce_add(q_sum_local), SCALE_FACTOR, Q_L2_NORM_EPS);
-            k_scale = FUNC(l2norm_scale)(sub_group_reduce_add(k_sum_local), 1.0f, K_L2_NORM_EPS);
+            q_scale = FUNC(l2norm_scale)(q_sum, SCALE_FACTOR, Q_L2_NORM_EPS);
+            k_scale = FUNC(l2norm_scale)(k_sum, 1.0f, K_L2_NORM_EPS);
 #endif
-            for (int ks = 0; ks < K_SLICE_SIZE; ks++) {
-                q_norm[ks] *= q_scale;
-                k_norm[ks] *= k_scale;
-            }
             const float b_g = exp(convert_float(gate[g_idx]));
             const float b_beta = convert_float(beta[g_idx]);
 #pragma unroll
@@ -168,19 +158,18 @@ KERNEL(paged_gated_delta_net_ref)
                 const int curr_iv = start_iv + v_idx;
                 if (curr_iv >= V_HEAD_DIM)
                     continue;
-                float h_k_local = 0.0f;
-                for (int ks = 0; ks < K_SLICE_SIZE; ks++) {
-                    state[v_idx][ks] *= b_g;
-                    h_k_local = fma(state[v_idx][ks], k_norm[ks], h_k_local);
+                float h_k = 0.0f;
+                for (int k_idx = 0; k_idx < K_HEAD_DIM; k_idx++) {
+                    state[v_idx][k_idx] *= b_g;
+                    h_k = fma(state[v_idx][k_idx], convert_float(key[k_base + k_idx]) * k_scale, h_k);
                 }
-                const float update_val = (convert_float(value[v_base + curr_iv]) - sub_group_reduce_add(h_k_local)) * b_beta;
-                float out_val_local = 0.0f;
-                for (int ks = 0; ks < K_SLICE_SIZE; ks++) {
-                    state[v_idx][ks] = fma(k_norm[ks], update_val, state[v_idx][ks]);
-                    out_val_local = fma(state[v_idx][ks], q_norm[ks], out_val_local);
+                const float update_val = (convert_float(value[v_base + curr_iv]) - h_k) * b_beta;
+                float out_val = 0.0f;
+                for (int k_idx = 0; k_idx < K_HEAD_DIM; k_idx++) {
+                    state[v_idx][k_idx] = fma(convert_float(key[k_base + k_idx]) * k_scale, update_val, state[v_idx][k_idx]);
+                    out_val = fma(state[v_idx][k_idx], convert_float(query[q_base + k_idx]) * q_scale, out_val);
                 }
-                if (lid == 0)
-                    output[(token * V_HEAD_NUM + h) * V_HEAD_DIM + curr_iv] = TO_OUTPUT_TYPE(sub_group_reduce_add(out_val_local));
+                output[(token * V_HEAD_NUM + h) * V_HEAD_DIM + curr_iv] = TO_OUTPUT_TYPE(out_val);
             }
             const int output_block_base = (block_indices[block_begin + node + 1] * V_HEAD_NUM + h) * state_stride;
 #pragma unroll
@@ -189,10 +178,8 @@ KERNEL(paged_gated_delta_net_ref)
                 if (curr_iv >= V_HEAD_DIM)
                     continue;
                 const int base = output_block_base + curr_iv * K_HEAD_DIM;
-                for (int ks = 0; ks < K_SLICE_SIZE; ks++) {
-                    const int k_idx = lid + ks * SUBGROUP_SIZE;
-                    if (k_idx < K_HEAD_DIM)
-                        recurrent_state_table[base + k_idx] = (INPUT3_TYPE)(state[v_idx][ks]);
+                for (int k_idx = 0; k_idx < K_HEAD_DIM; k_idx++) {
+                    recurrent_state_table[base + k_idx] = (INPUT3_TYPE)(state[v_idx][k_idx]);
                 }
             }
         }
